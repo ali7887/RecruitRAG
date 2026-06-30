@@ -94,6 +94,70 @@ Status:
 - Do not reimplement
 
 ---
+# 3) Completed Phases
+
+## ✅ Phase 1 — Project Scaffold
+
+Implemented files:
+- lib/env.ts
+- lib/constants.ts
+- lib/types.ts
+
+Status:
+Stable foundation for shared configuration and typing.
+
+---
+
+## ✅ Phase 2 — Core RAG Utilities
+
+Implemented files:
+- lib/parser.ts
+- lib/chunker.ts
+- lib/embeddings.ts
+- lib/similarity.ts
+- lib/scoring.ts
+
+Capabilities:
+- PDF text extraction
+- Resume chunking
+- OpenAI embeddings
+- cosine similarity retrieval
+- hybrid scoring
+
+Status:
+Stable RAG utility layer.
+
+---
+
+## ✅ Phase 3 — Analyze API Route
+
+Implemented file:
+- app/api/analyze/route.ts
+
+Capabilities:
+- multipart form parsing
+- resume PDF validation
+- job description validation
+- execution of the full RAG pipeline
+- retrieval of top‑K resume chunks
+- Claude Opus analysis
+- robust JSON parsing from LLM output
+- hybrid score calculation
+
+Response format:
+
+{
+  "finalScore": number,
+  "similarityScore": number,
+  "llmScore": number,
+  "strengths": string[],
+  "gaps": string[],
+  "interviewQuestions": string[]
+}
+
+Status:
+AI pipeline fully functional.
+Backend ready for frontend integration.
 
 # 4) Current RAG Pipeline
 

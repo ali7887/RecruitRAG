@@ -1,27 +1,25 @@
-Build the RecruitRAG project step-by-step.
+Build the RecruitRAG project incrementally.
 
-Phase 1:
-Create folder structure and base configuration.
+Goals:
+- Minimal architecture
+- Production-ready MVP
+- Professional UI
+- Strong TypeScript quality
 
-Phase 2:
-Implement core RAG utilities:
-- parser
-- chunker
-- embeddings
-- similarity
-- scoring
+Workflow:
+1. Build one phase at a time
+2. Wait for confirmation after each phase
+3. Only modify necessary files
+4. Avoid duplicated logic
+5. Ensure build passes after every phase
 
-Phase 3:
-Implement API route /api/analyze
+Technical Requirements:
+- Next.js 15
+- App Router
+- Tailwind
+- shadcn/ui
+- OpenAI embeddings
+- Claude analysis
+- Vercel-compatible
 
-Phase 4:
-Build minimal professional UI
-
-Rules:
-- Only modify files required.
-- Do not rewrite unchanged files.
-- Wait for confirmation after each phase.
-- Ensure project builds after each phase.
-- Use strict typing.
-- Keep implementation minimal.
-- Optimize for performance.
+Do not add features outside MVP scope.

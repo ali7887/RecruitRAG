@@ -1,0 +1,156 @@
+import { promises as fs } from "node:fs";
+import path from "node:path";
+import Anthropic from "@anthropic-ai/sdk";
+import { chunkText } from "@/lib/chunker";
+import { ANALYSIS_MODEL } from "@/lib/constants";
+import { embedChunks, embedText } from "@/lib/embeddings";
+import { env } from "@/lib/env";
+import { extractTextFromPdf } from "@/lib/parser";
+import { combineScores, similarityToScore } from "@/lib/scoring";
+import { retrieveTopChunks, type RankedChunk } from "@/lib/similarity";
+import type { AnalysisResult } from "@/lib/types";
+
+// pdf-parse and prompt-file reads rely on Node APIs.
+export const runtime = "nodejs";
+
+const MAX_OUTPUT_TOKENS = 1024;
+
+// Raw JSON shape returned by the analyze prompt (snake_case per prompts/analyze.md).
+interface LlmAnalysis {
+  llm_score: number;
+  strengths: string[];
+  gaps: string[];
+  interview_questions: string[];
+}
+
+export async function POST(request: Request): Promise<Response> {
+  let form: FormData;
+  try {
+    form = await request.formData();
+  } catch {
+    return errorResponse("Expected multipart/form-data.", 400);
+  }
+
+  const file = form.get("file");
+  const jobDescription = form.get("jobDescription");
+
+  if (!(file instanceof File) || file.size === 0) {
+    return errorResponse("A resume PDF file is required.", 400);
+  }
+  if (typeof jobDescription !== "string" || jobDescription.trim().length === 0) {
+    return errorResponse("A job description is required.", 400);
+  }
+
+  try {
+    // Resume: PDF → text → chunks → embeddings.
+    const resumeText = await extractTextFromPdf(await file.arrayBuffer());
+    if (resumeText.length === 0) {
+      return errorResponse("Could not extract any text from the PDF.", 400);
+    }
+    const embeddedChunks = await embedChunks(chunkText(resumeText));
+
+    // Job description: query vector → top-K retrieval.
+    const queryVector = await embedText(jobDescription);
+    const topChunks = retrieveTopChunks(queryVector, embeddedChunks);
+
+    // Claude analysis over the retrieved context.
+    const analysis = await analyzeWithClaude(topChunks, jobDescription);
+
+    // Hybrid score: 0.6 * similarity + 0.4 * llmScore.
+    const similarityScore = averageSimilarityScore(topChunks);
+    const llmScore = clampScore(analysis.llm_score);
+
+    const result: AnalysisResult = {
+      finalScore: combineScores(similarityScore, llmScore),
+      similarityScore,
+      llmScore,
+      strengths: analysis.strengths,
+      gaps: analysis.gaps,
+      interviewQuestions: analysis.interview_questions,
+    };
+    return Response.json(result);
+  } catch (error) {
+    console.error("Analysis failed:", error);
+    return errorResponse("Failed to analyze the resume.", 500);
+  }
+}
+
+function errorResponse(message: string, status: number): Response {
+  return Response.json({ error: message }, { status });
+}
+
+// Mean cosine similarity of the retrieved chunks, mapped to a 0–100 score.
+function averageSimilarityScore(chunks: RankedChunk[]): number {
+  if (chunks.length === 0) return 0;
+  const mean = chunks.reduce((sum, chunk) => sum + chunk.score, 0) / chunks.length;
+  return similarityToScore(mean);
+}
+
+function clampScore(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(100, Math.round(value)));
+}
+
+async function analyzeWithClaude(
+  chunks: RankedChunk[],
+  jobDescription: string,
+): Promise<LlmAnalysis> {
+  const prompt = await buildPrompt(chunks, jobDescription);
+  const client = new Anthropic({ apiKey: env.anthropicApiKey });
+
+  const message = await client.messages.create({
+    model: ANALYSIS_MODEL,
+    max_tokens: MAX_OUTPUT_TOKENS,
+    messages: [{ role: "user", content: prompt }],
+  });
+
+  const text = message.content
+    .map((block) => (block.type === "text" ? block.text : ""))
+    .join("");
+
+  return parseAnalysis(text);
+}
+
+let cachedTemplate: string | null = null;
+
+async function loadPromptTemplate(): Promise<string> {
+  if (cachedTemplate === null) {
+    const file = path.join(process.cwd(), "prompts", "analyze.md");
+    cachedTemplate = await fs.readFile(file, "utf8");
+  }
+  return cachedTemplate;
+}
+
+async function buildPrompt(chunks: RankedChunk[], jobDescription: string): Promise<string> {
+  const template = await loadPromptTemplate();
+  const context = chunks
+    .map((chunk, index) => `[Chunk ${index + 1}]\n${chunk.text}`)
+    .join("\n\n");
+
+  return template
+    .replace("{{retrieved_chunks}}", context)
+    .replace("{{job_description}}", jobDescription);
+}
+
+function parseAnalysis(text: string): LlmAnalysis {
+  // The model is instructed to return JSON only; tolerate surrounding prose/fences.
+  const start = text.indexOf("{");
+  const end = text.lastIndexOf("}");
+  if (start === -1 || end === -1) {
+    throw new Error("LLM response did not contain JSON.");
+  }
+
+  const parsed = JSON.parse(text.slice(start, end + 1)) as Partial<LlmAnalysis>;
+  return {
+    llm_score: typeof parsed.llm_score === "number" ? parsed.llm_score : 0,
+    strengths: toStringArray(parsed.strengths),
+    gaps: toStringArray(parsed.gaps),
+    interview_questions: toStringArray(parsed.interview_questions),
+  };
+}
+
+function toStringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string")
+    : [];
+}

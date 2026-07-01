@@ -14,6 +14,28 @@ export function AnalysisResultView({ result }: { result: EvaluatedAnalysis }) {
   );
 }
 
+// Ranked list of compact score cards for multi-candidate / multi-role modes.
+export function MultiResultList({
+  items,
+}: {
+  items: { key: string; label: string; result: EvaluatedAnalysis }[];
+}) {
+  const ranked = [...items].sort((a, b) => b.result.finalScore - a.result.finalScore);
+
+  return (
+    <div className="flex flex-col gap-2">
+      {ranked.map((item, index) => (
+        <ScoreCard
+          key={item.key}
+          result={item.result}
+          compact
+          label={`${index + 1}. ${item.label}`}
+        />
+      ))}
+    </div>
+  );
+}
+
 function EvidenceRow({ evidence }: { evidence: Evidence }) {
   const matched = evidence.matchedSkills.slice(0, 5);
   const missing = evidence.missingSkills.slice(0, 5);

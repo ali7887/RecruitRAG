@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { RUBRIC_POSITIVE, type EvaluatedAnalysis } from "@/lib/evaluation-rubric";
+import { scoreColorClass } from "@/lib/multi";
 import { cn } from "@/lib/utils";
 
 const SIZE = 112;
@@ -9,26 +10,48 @@ const STROKE = 9;
 const RADIUS = (SIZE - STROKE) / 2;
 const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
 
-// Score thresholds → accent color (used for both ring stroke and number).
-function scoreColor(score: number): string {
-  if (score >= 85) return "text-emerald-400";
-  if (score >= 70) return "text-cyan-400";
-  if (score >= 55) return "text-amber-400";
-  return "text-red-400";
+function rubricLine(result: EvaluatedAnalysis): string {
+  if (!result.rubricScores) {
+    return `Sim ${result.similarityScore} · LLM ${result.llmScore}`;
+  }
+  return RUBRIC_POSITIVE.map((d) => `${d.short} ${result.rubricScores![d.key]}`).join(" · ");
 }
 
-// Circular score ring (left) with horizontal metric bars (right).
-export function ScoreCard({ result }: { result: EvaluatedAnalysis }) {
-  // Animate from 0 to the real values once mounted on the client.
+// Circular score ring + metric bars (full), or a slim row (compact, multi mode).
+export function ScoreCard({
+  result,
+  compact = false,
+  label,
+}: {
+  result: EvaluatedAnalysis;
+  compact?: boolean;
+  label?: string;
+}) {
+  // Animate the ring from 0 once mounted (full mode only, but hooks run always).
   const [mounted, setMounted] = useState(false);
   useEffect(() => {
     const id = requestAnimationFrame(() => setMounted(true));
     return () => cancelAnimationFrame(id);
   }, []);
 
+  const color = scoreColorClass(result.finalScore);
+
+  if (compact) {
+    return (
+      <div className="flex items-center gap-3 rounded-xl border border-zinc-800 bg-zinc-900 p-3">
+        <span className={cn("w-9 shrink-0 text-right text-2xl font-semibold tabular-nums", color)}>
+          {result.finalScore}
+        </span>
+        <div className="min-w-0 flex-1">
+          {label && <p className="truncate text-sm text-zinc-200">{label}</p>}
+          <p className="truncate text-xs text-zinc-500">{rubricLine(result)}</p>
+        </div>
+      </div>
+    );
+  }
+
   const shown = mounted ? result.finalScore : 0;
   const offset = CIRCUMFERENCE * (1 - shown / 100);
-  const color = scoreColor(result.finalScore);
 
   return (
     <div className="flex flex-col items-center gap-5 rounded-2xl border border-zinc-800 bg-zinc-900 p-5 shadow-lg shadow-black/30 sm:flex-row sm:gap-6">

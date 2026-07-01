@@ -3,7 +3,7 @@ import { env } from "@/lib/env";
 
 export default function Home() {
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-7xl flex-col px-6 py-6 lg:h-screen lg:overflow-hidden">
+    <main className="mx-auto flex min-h-[calc(100vh-3.5rem)] w-full max-w-7xl flex-col px-6 py-6 lg:h-[calc(100vh-3.5rem)] lg:overflow-hidden">
       <header className="flex shrink-0 flex-col items-center gap-2 text-center">
         <span className="inline-flex items-center gap-2 rounded-full border border-zinc-800 bg-zinc-900/60 px-3 py-1 text-xs font-medium text-zinc-400">
           <span className="size-1.5 rounded-full bg-emerald-400" />

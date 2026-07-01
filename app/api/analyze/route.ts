@@ -7,21 +7,35 @@ import { getDemoAnalysisResult } from "@/lib/demo-analysis";
 import { embedChunks, embedText, QuotaExceededError } from "@/lib/embeddings";
 import { env } from "@/lib/env";
 import { extractTextFromPdf } from "@/lib/parser";
-import { combineScores, similarityToScore } from "@/lib/scoring";
+import {
+  buildScoreBreakdown,
+  clampScore,
+  combineScores,
+  llmScoreFromRubric,
+  similarityToScore,
+} from "@/lib/scoring";
+import {
+  type Evidence,
+  type EvaluatedAnalysis,
+  type RubricScores,
+} from "@/lib/evaluation-rubric";
 import { retrieveTopChunks, type RankedChunk } from "@/lib/similarity";
-import type { AnalysisResult } from "@/lib/types";
 
 // pdf-parse and prompt-file reads rely on Node APIs.
 export const runtime = "nodejs";
 
-const MAX_OUTPUT_TOKENS = 1024;
+const MAX_OUTPUT_TOKENS = 1536;
 
-// Raw JSON shape returned by the analyze prompt (snake_case per prompts/analyze.md).
+// Raw JSON shape returned by the analyze prompt (see prompts/analyze.md).
+// Rubric/evidence/confidence are optional so older prompt output still parses.
 interface LlmAnalysis {
   llm_score: number;
   strengths: string[];
   gaps: string[];
   interview_questions: string[];
+  rubricScores?: RubricScores;
+  evidence?: Evidence;
+  confidence?: number;
 }
 
 export async function POST(request: Request): Promise<Response> {
@@ -65,17 +79,27 @@ export async function POST(request: Request): Promise<Response> {
     // Claude analysis over the retrieved context.
     const analysis = await analyzeWithClaude(topChunks, jobDescription);
 
-    // Hybrid score: 0.6 * similarity + 0.4 * llmScore.
+    // Rubric-driven scoring: prefer the weighted rubric; fall back to the raw
+    // llm_score if the model didn't return a rubric.
     const similarityScore = averageSimilarityScore(topChunks);
-    const llmScore = clampScore(analysis.llm_score);
+    const llmScore = analysis.rubricScores
+      ? llmScoreFromRubric(analysis.rubricScores)
+      : clampScore(analysis.llm_score);
+    const finalScore = combineScores(similarityScore, llmScore);
 
-    const result: AnalysisResult = {
-      finalScore: combineScores(similarityScore, llmScore),
+    const result: EvaluatedAnalysis = {
+      finalScore,
       similarityScore,
       llmScore,
       strengths: analysis.strengths,
       gaps: analysis.gaps,
       interviewQuestions: analysis.interview_questions,
+      scoreBreakdown: buildScoreBreakdown(similarityScore, llmScore),
+      ...(analysis.rubricScores ? { rubricScores: analysis.rubricScores } : {}),
+      ...(analysis.evidence ? { evidence: analysis.evidence } : {}),
+      ...(typeof analysis.confidence === "number"
+        ? { confidence: analysis.confidence }
+        : {}),
     };
     return Response.json(result);
   } catch (error) {
@@ -105,11 +129,6 @@ function averageSimilarityScore(chunks: RankedChunk[]): number {
   if (chunks.length === 0) return 0;
   const mean = chunks.reduce((sum, chunk) => sum + chunk.score, 0) / chunks.length;
   return similarityToScore(mean);
-}
-
-function clampScore(value: number): number {
-  if (!Number.isFinite(value)) return 0;
-  return Math.max(0, Math.min(100, Math.round(value)));
 }
 
 async function analyzeWithClaude(
@@ -167,6 +186,45 @@ function parseAnalysis(text: string): LlmAnalysis {
     strengths: toStringArray(parsed.strengths),
     gaps: toStringArray(parsed.gaps),
     interview_questions: toStringArray(parsed.interview_questions),
+    rubricScores: parseRubric(parsed.rubricScores),
+    evidence: parseEvidence(parsed.evidence),
+    confidence:
+      typeof parsed.confidence === "number"
+        ? Math.max(0, Math.min(1, parsed.confidence))
+        : undefined,
+  };
+}
+
+const RUBRIC_KEYS: (keyof RubricScores)[] = [
+  "coreSkills",
+  "experience",
+  "impact",
+  "roleRequirements",
+  "communication",
+  "redFlagsPenalty",
+];
+
+// Accept a rubric only if every dimension is present and numeric; otherwise
+// treat it as absent so the route falls back to the raw llm_score.
+function parseRubric(value: unknown): RubricScores | undefined {
+  if (typeof value !== "object" || value === null) return undefined;
+  const record = value as Record<string, unknown>;
+  const scores = {} as RubricScores;
+  for (const key of RUBRIC_KEYS) {
+    const raw = record[key];
+    if (typeof raw !== "number" || !Number.isFinite(raw)) return undefined;
+    scores[key] = clampScore(raw);
+  }
+  return scores;
+}
+
+function parseEvidence(value: unknown): Evidence | undefined {
+  if (typeof value !== "object" || value === null) return undefined;
+  const record = value as Record<string, unknown>;
+  return {
+    matchedSkills: toStringArray(record.matchedSkills).slice(0, 5),
+    missingSkills: toStringArray(record.missingSkills).slice(0, 5),
+    topSignals: toStringArray(record.topSignals).slice(0, 5),
   };
 }
 

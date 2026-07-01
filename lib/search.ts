@@ -1,4 +1,4 @@
-import { listCandidates } from "@/lib/db/repository";
+import { listAnalysesByProject, listCandidates } from "@/lib/db/repository";
 import { embedText } from "@/lib/embeddings";
 import { env } from "@/lib/env";
 import { cosineSimilarity } from "@/lib/similarity";
@@ -21,11 +21,20 @@ const SNIPPET_LENGTH = 140;
 // embedded once and compared to each candidate vector via cosine similarity.
 // Deterministic path: in demo mode, or when no embeddings are stored, a
 // term-frequency cosine over the raw resume text gives stable, offline results.
-export async function searchCandidates(query: string): Promise<CandidateMatch[]> {
+export async function searchCandidates(
+  query: string,
+  projectId?: string,
+): Promise<CandidateMatch[]> {
   const trimmed = query.trim();
   if (!trimmed) return [];
 
-  const candidates = await listCandidates();
+  let candidates = await listCandidates();
+  // Restrict to candidates analyzed within a specific project when scoped.
+  if (projectId) {
+    const analyses = await listAnalysesByProject(projectId);
+    const inProject = new Set(analyses.map((analysis) => analysis.candidateId));
+    candidates = candidates.filter((candidate) => inProject.has(candidate.id));
+  }
   if (candidates.length === 0) return [];
 
   const canEmbed =

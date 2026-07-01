@@ -1,6 +1,36 @@
 # RecruitRAG — Project Status
 
-Last Updated: 2026-06-30
+Last Updated: 2026-07-01
+
+---
+
+## ✅ Phase 7 — Recruitment Projects & Candidate Assignment
+
+Project-based workspace: recruiters create hiring projects and assign/evaluate
+candidates under each one.
+
+Data layer:
+- `projects` table gains a `requirements` (keywords) column (`lib/db/schema.ts`).
+  Apply with `npm run db:push`; demo/in-memory mode needs no migration.
+- Repository (`lib/db/repository.ts`): `createProject` now stores requirements;
+  added `listProjectSummaries()` (per-project candidate count + average match)
+  and `getProjectDetails()` (project + score-ranked candidates).
+- Project-scoped semantic search via `searchCandidates(query, projectId?)`.
+
+UI:
+- `app/projects/page.tsx`: metrics grid with the cyan `ScoreRing`
+  (`components/score-ring.tsx`) showing average match and candidate counts.
+- `app/projects/[id]/page.tsx`: two-column layout — role metadata + keyword
+  chips + add-candidate form on the left; ranked candidate board and a
+  project-scoped `SearchBar` on the right.
+- Nav: "Projects" placed before "Insights" (`components/nav-bar.tsx`).
+
+Demo mode:
+- Seeds 3 projects ("Frontend Engineer (Next.js/TS)", "AI RAG specialist",
+  "DevOps / Infrastructure") and 3 candidates → 9 analyses, so each candidate
+  tops exactly one board (`lib/db/memory.ts`).
+
+Status: Build passing.
 
 ---
 

@@ -15,6 +15,32 @@ import type { Evidence, RubricScores } from "@/lib/evaluation-rubric";
 export interface NewProjectInput {
   title: string;
   description?: string;
+  requirements?: string;
+}
+
+// A stored analysis flattened with its candidate's name, for project boards.
+export interface ProjectAnalysis {
+  analysisId: string;
+  candidateId: string;
+  name: string;
+  role: string;
+  finalScore: number;
+  similarityScore: number;
+  llmScore: number;
+}
+
+// A project plus its scored candidates (sorted by match) and headline metrics.
+export interface ProjectDetails {
+  project: ProjectRow;
+  analyses: ProjectAnalysis[];
+  candidateCount: number;
+  averageScore: number;
+}
+
+// A project card summary: metadata plus candidate count and average match.
+export interface ProjectSummary extends ProjectRow {
+  candidateCount: number;
+  averageScore: number;
 }
 
 export interface UpsertCandidateInput {
@@ -68,6 +94,7 @@ export async function createProject(input: NewProjectInput): Promise<ProjectRow>
       id: randomUUID(),
       title: input.title,
       description: input.description ?? "",
+      requirements: input.requirements ?? "",
       createdAt: new Date(),
     };
     getMemoryStore().projects.unshift(project);
@@ -75,9 +102,64 @@ export async function createProject(input: NewProjectInput): Promise<ProjectRow>
   }
   const rows = await db
     .insert(projects)
-    .values({ title: input.title, description: input.description ?? "" })
+    .values({
+      title: input.title,
+      description: input.description ?? "",
+      requirements: input.requirements ?? "",
+    })
     .returning();
   return rows[0];
+}
+
+// Projects with per-project metrics for the dashboard grid. Fetches all
+// analyses once and groups in memory to avoid a query per project.
+export async function listProjectSummaries(): Promise<ProjectSummary[]> {
+  const [allProjects, allAnalyses] = await Promise.all([listProjects(), listAnalyses()]);
+  const byProject = new Map<string, AnalysisRow[]>();
+  for (const analysis of allAnalyses) {
+    const bucket = byProject.get(analysis.projectId);
+    if (bucket) bucket.push(analysis);
+    else byProject.set(analysis.projectId, [analysis]);
+  }
+  return allProjects.map((project) => {
+    const rows = byProject.get(project.id) ?? [];
+    const candidateCount = new Set(rows.map((row) => row.candidateId)).size;
+    const averageScore = rows.length
+      ? Math.round(rows.reduce((sum, row) => sum + row.finalScore, 0) / rows.length)
+      : 0;
+    return { ...project, candidateCount, averageScore };
+  });
+}
+
+// A project with its scored candidates (highest match first) and metrics.
+export async function getProjectDetails(id: string): Promise<ProjectDetails | null> {
+  const project = await getProject(id);
+  if (!project) return null;
+
+  const [rows, allCandidates] = await Promise.all([
+    listAnalysesByProject(id),
+    listCandidates(),
+  ]);
+  const nameById = new Map(allCandidates.map((candidate) => [candidate.id, candidate.name]));
+
+  const analyses: ProjectAnalysis[] = rows
+    .map((row) => ({
+      analysisId: row.id,
+      candidateId: row.candidateId,
+      name: nameById.get(row.candidateId) ?? "Unknown",
+      role: row.role,
+      finalScore: row.finalScore,
+      similarityScore: row.similarityScore,
+      llmScore: row.llmScore,
+    }))
+    .sort((a, b) => b.finalScore - a.finalScore);
+
+  const candidateCount = new Set(analyses.map((analysis) => analysis.candidateId)).size;
+  const averageScore = analyses.length
+    ? Math.round(analyses.reduce((sum, analysis) => sum + analysis.finalScore, 0) / analyses.length)
+    : 0;
+
+  return { project, analyses, candidateCount, averageScore };
 }
 
 export async function listCandidates(): Promise<CandidateRow[]> {

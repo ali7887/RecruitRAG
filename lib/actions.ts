@@ -17,9 +17,10 @@ const MIN_JD_LENGTH = 30;
 export async function createProjectAction(formData: FormData): Promise<void> {
   const title = String(formData.get("title") ?? "").trim();
   const description = String(formData.get("description") ?? "").trim();
+  const requirements = String(formData.get("requirements") ?? "").trim();
   if (!title) return;
 
-  const project = await createProject({ title, description });
+  const project = await createProject({ title, description, requirements });
   revalidatePath("/projects");
   redirect(`/projects/${project.id}`);
 }
@@ -83,7 +84,11 @@ export async function analyzeCandidateAction(formData: FormData): Promise<void> 
   revalidatePath("/candidates");
 }
 
-// Rank stored candidates against a free-text query for the candidates search bar.
-export async function searchCandidatesAction(query: string): Promise<CandidateMatch[]> {
-  return searchCandidates(query);
+// Rank stored candidates against a free-text query for the candidates search
+// bar. When `projectId` is given, ranking is scoped to that project.
+export async function searchCandidatesAction(
+  query: string,
+  projectId?: string,
+): Promise<CandidateMatch[]> {
+  return searchCandidates(query, projectId);
 }

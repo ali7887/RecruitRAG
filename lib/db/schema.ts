@@ -6,6 +6,8 @@ export const projects = pgTable("projects", {
   id: uuid("id").primaryKey().defaultRandom(),
   title: text("title").notNull(),
   description: text("description").notNull().default(""),
+  // Target skills / keywords for the role, stored as free text.
+  requirements: text("requirements").notNull().default(""),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

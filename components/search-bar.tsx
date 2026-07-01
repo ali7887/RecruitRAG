@@ -9,8 +9,15 @@ const TOP_N = 3;
 const DEBOUNCE_MS = 250;
 
 // Minimalist semantic search over stored candidates. Debounced input drives a
-// server action; the top matches render in a "Quick View" popover below.
-export function SearchBar() {
+// server action; the top matches render in a "Quick View" popover below. When
+// `projectId` is set, ranking is scoped to candidates within that project.
+export function SearchBar({
+  projectId,
+  placeholder = "Search candidates by skills, experience, role…",
+}: {
+  projectId?: string;
+  placeholder?: string;
+} = {}) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<CandidateMatch[]>([]);
   const [open, setOpen] = useState(false);
@@ -27,13 +34,13 @@ export function SearchBar() {
     }
     const handle = setTimeout(() => {
       startTransition(async () => {
-        const matches = await searchCandidatesAction(trimmed);
+        const matches = await searchCandidatesAction(trimmed, projectId);
         setResults(matches.slice(0, TOP_N));
         setOpen(true);
       });
     }, DEBOUNCE_MS);
     return () => clearTimeout(handle);
-  }, [query]);
+  }, [query, projectId]);
 
   // Close the popover on outside click.
   useEffect(() => {
@@ -50,7 +57,7 @@ export function SearchBar() {
         value={query}
         onChange={(event) => setQuery(event.target.value)}
         onFocus={() => results.length > 0 && setOpen(true)}
-        placeholder="Search candidates by skills, experience, role…"
+        placeholder={placeholder}
         className="w-full rounded-xl border border-zinc-800 bg-zinc-950/40 px-4 py-2.5 text-sm text-zinc-200 placeholder:text-zinc-600 focus:border-cyan-500/40 focus:outline-none"
       />
 

@@ -334,3 +334,17 @@ Focus on:
 - correctness
 - simplicity
 - maintainability
+
+---
+
+# 14) Provider Error Handling
+
+- OpenAI quota errors are detected explicitly (HTTP 429, `insufficient_quota`
+  code/type) and surfaced through `QuotaExceededError`.
+- Insufficient quota is never retried — only transient network/timeout errors
+  are. The analyze route returns HTTP 429 with a clean JSON `error` message; raw
+  provider stack traces are never exposed to the client (logged server-side).
+- Demo mode can be enabled with `USE_DEMO_MODE=true`.
+- Demo mode is explicit only — it bypasses OpenAI/Anthropic and returns a static
+  typed `AnalysisResult` (`lib/demo-analysis.ts`). The app never falls back to
+  demo results silently after a quota error.

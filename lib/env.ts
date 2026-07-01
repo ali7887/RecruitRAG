@@ -19,4 +19,9 @@ export const env = {
   get anthropicApiKey(): string {
     return readEnv("ANTHROPIC_API_KEY");
   },
+  // Optional. When "true", the app bypasses OpenAI/Anthropic and serves a
+  // static demo analysis. Absent or any other value means real providers.
+  get useDemoMode(): boolean {
+    return process.env.USE_DEMO_MODE === "true";
+  },
 };

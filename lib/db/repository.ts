@@ -152,6 +152,14 @@ export async function upsertCandidate(input: UpsertCandidateInput): Promise<Cand
   return rows[0];
 }
 
+export async function listAnalyses(): Promise<AnalysisRow[]> {
+  const db = getDb();
+  if (!db) {
+    return [...getMemoryStore().analyses].sort(byNewest);
+  }
+  return db.select().from(analyses).orderBy(desc(analyses.createdAt));
+}
+
 export async function listAnalysesByProject(projectId: string): Promise<AnalysisRow[]> {
   const db = getDb();
   if (!db) {

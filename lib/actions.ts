@@ -8,6 +8,7 @@ import { QuotaExceededError } from "@/lib/embeddings";
 import { env } from "@/lib/env";
 import type { EvaluatedAnalysis } from "@/lib/evaluation-rubric";
 import { extractTextFromPdf } from "@/lib/parser";
+import { searchCandidates, type CandidateMatch } from "@/lib/search";
 import { createAnalysis, createProject, upsertCandidate } from "@/lib/db/repository";
 
 const MIN_JD_LENGTH = 30;
@@ -80,4 +81,9 @@ export async function analyzeCandidateAction(formData: FormData): Promise<void> 
 
   revalidatePath(`/projects/${projectId}`);
   revalidatePath("/candidates");
+}
+
+// Rank stored candidates against a free-text query for the candidates search bar.
+export async function searchCandidatesAction(query: string): Promise<CandidateMatch[]> {
+  return searchCandidates(query);
 }

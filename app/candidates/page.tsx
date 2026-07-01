@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { SearchBar } from "@/components/search-bar";
 import { listCandidates } from "@/lib/db/repository";
 
 export const dynamic = "force-dynamic";
@@ -15,6 +16,8 @@ export default async function CandidatesPage() {
             Stored candidate profiles from analyzed resumes.
           </p>
         </header>
+
+        <SearchBar />
 
         {candidates.length === 0 ? (
           <p className="text-sm text-zinc-600">No candidates yet.</p>

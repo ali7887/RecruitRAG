@@ -35,6 +35,14 @@ export function scoreColorClass(score: number): string {
   return "text-red-400";
 }
 
+// Score → short match-quality label, shared by badges and cross-project views.
+export function matchQualityLabel(score: number): string {
+  if (score >= 85) return "Strong";
+  if (score >= 70) return "Good";
+  if (score >= 55) return "Moderate";
+  return "Weak";
+}
+
 // Pipeline status → text + border classes for status chips/selects (Phase 8),
 // consistent with the cyan/teal palette.
 export function statusColorClass(status: string): string {

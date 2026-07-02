@@ -43,6 +43,12 @@ export const analyses = pgTable("analyses", {
   strengths: jsonb("strengths").$type<string[]>().notNull(),
   gaps: jsonb("gaps").$type<string[]>().notNull(),
   interviewQuestions: jsonb("interview_questions").$type<string[]>().notNull(),
+  // AI recruiter briefing (Phase 10), generated on demand from the analysis.
+  // Nullable: absent until a briefing is generated.
+  aiSummary: text("ai_summary"),
+  technicalSummary: text("technical_summary"),
+  hiringRecommendation: text("hiring_recommendation"),
+  interviewFocus: jsonb("interview_focus").$type<string[]>(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { CandidateBoard } from "@/components/candidate-board";
+import { ExportToolbar } from "@/components/export-toolbar";
 import { ScoreRing } from "@/components/score-ring";
 import { SearchBar } from "@/components/search-bar";
 import { analyzeCandidateAction } from "@/lib/actions";
@@ -102,9 +103,12 @@ export default async function ProjectPage({
 
           {/* Right column: candidate board (ranked by match) + scoped search */}
           <section className="flex flex-col gap-3 rounded-2xl border border-zinc-800 bg-zinc-900/40 p-5">
-            <h2 className="text-sm font-medium uppercase tracking-widest text-zinc-500">
-              Candidates
-            </h2>
+            <div className="flex items-center justify-between gap-3">
+              <h2 className="text-sm font-medium uppercase tracking-widest text-zinc-500">
+                Candidates
+              </h2>
+              <ExportToolbar projectId={project.id} />
+            </div>
             <SearchBar projectId={project.id} placeholder="Search candidates in this project…" />
             <CandidateBoard analyses={analyses} />
           </section>

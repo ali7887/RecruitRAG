@@ -10,6 +10,7 @@ import {
   type CandidateRow,
   type ProjectRow,
 } from "@/lib/db/schema";
+import type { Briefing } from "@/lib/briefing";
 import { DEFAULT_CANDIDATE_STATUS, type CandidateStatus } from "@/lib/constants";
 import type { Evidence, RubricScores } from "@/lib/evaluation-rubric";
 
@@ -30,6 +31,9 @@ export interface ProjectAnalysis {
   finalScore: number;
   similarityScore: number;
   llmScore: number;
+  strengths: string[];
+  gaps: string[];
+  interviewQuestions: string[];
 }
 
 // A project plus its scored candidates (sorted by match) and headline metrics.
@@ -156,6 +160,9 @@ export async function getProjectDetails(id: string): Promise<ProjectDetails | nu
       finalScore: row.finalScore,
       similarityScore: row.similarityScore,
       llmScore: row.llmScore,
+      strengths: row.strengths,
+      gaps: row.gaps,
+      interviewQuestions: row.interviewQuestions,
     }))
     .sort((a, b) => b.finalScore - a.finalScore);
 
@@ -165,6 +172,17 @@ export async function getProjectDetails(id: string): Promise<ProjectDetails | nu
     : 0;
 
   return { project, analyses, candidateCount, averageScore };
+}
+
+// The highest-scoring candidates for a project (analyses are already sorted
+// by match in getProjectDetails). Empty when the project is missing.
+export async function getTopCandidates(
+  projectId: string,
+  limit = 3,
+): Promise<ProjectAnalysis[]> {
+  const details = await getProjectDetails(projectId);
+  if (!details) return [];
+  return details.analyses.slice(0, limit);
 }
 
 export async function listCandidates(): Promise<CandidateRow[]> {
@@ -275,6 +293,15 @@ export async function listAnalysesByCandidate(candidateId: string): Promise<Anal
     .orderBy(desc(analyses.createdAt));
 }
 
+export async function getAnalysis(id: string): Promise<AnalysisRow | null> {
+  const db = getDb();
+  if (!db) {
+    return getMemoryStore().analyses.find((analysis) => analysis.id === id) ?? null;
+  }
+  const rows = await db.select().from(analyses).where(eq(analyses.id, id)).limit(1);
+  return rows[0] ?? null;
+}
+
 export async function createAnalysis(input: NewAnalysisInput): Promise<AnalysisRow> {
   const db = getDb();
   if (!db) {
@@ -293,6 +320,10 @@ export async function createAnalysis(input: NewAnalysisInput): Promise<AnalysisR
       strengths: input.strengths,
       gaps: input.gaps,
       interviewQuestions: input.interviewQuestions,
+      aiSummary: null,
+      technicalSummary: null,
+      hiringRecommendation: null,
+      interviewFocus: null,
       createdAt: new Date(),
     };
     getMemoryStore().analyses.unshift(analysis);
@@ -354,6 +385,28 @@ export async function updateAnalysisNotes(
     .set({ notes })
     .where(eq(analyses.id, id))
     .returning();
+  return rows[0] ?? null;
+}
+
+// Persist a generated AI briefing onto an analysis (Phase 10).
+export async function updateAnalysisBriefing(
+  id: string,
+  briefing: Briefing,
+): Promise<AnalysisRow | null> {
+  const fields = {
+    aiSummary: briefing.aiSummary,
+    technicalSummary: briefing.technicalSummary,
+    hiringRecommendation: briefing.hiringRecommendation,
+    interviewFocus: briefing.interviewFocus,
+  };
+  const db = getDb();
+  if (!db) {
+    const analysis = getMemoryStore().analyses.find((row) => row.id === id);
+    if (!analysis) return null;
+    Object.assign(analysis, fields);
+    return analysis;
+  }
+  const rows = await db.update(analyses).set(fields).where(eq(analyses.id, id)).returning();
   return rows[0] ?? null;
 }
 

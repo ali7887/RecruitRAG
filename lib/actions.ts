@@ -12,8 +12,25 @@ import { searchCandidates, type CandidateMatch } from "@/lib/search";
 import type { CandidateStatus } from "@/lib/constants";
 import type { AnalysisRow } from "@/lib/db/schema";
 import {
+  generateBriefing,
+  getDemoBriefing,
+  type Briefing,
+  type BriefingInput,
+} from "@/lib/briefing";
+import {
+  buildProjectJSON,
+  buildProjectMarkdown,
+  buildProjectSummary,
+  type ExportFile,
+} from "@/lib/export";
+import {
   createAnalysis,
   createProject,
+  getAnalysis,
+  getCandidate,
+  getProjectDetails,
+  getTopCandidates,
+  updateAnalysisBriefing,
   updateAnalysisNotes,
   updateAnalysisStatus,
   upsertCandidate,
@@ -116,6 +133,66 @@ export async function updateAnalysisNotesAction(
     revalidatePath(`/candidates/${analysis.candidateId}`);
   }
   return analysis;
+}
+
+// Generate an AI recruiter briefing for one analysis and persist it. Uses the
+// deterministic briefing in demo mode or on quota exhaustion, mirroring
+// analyzeCandidateAction. Null when the analysis no longer exists.
+export async function generateBriefingAction(analysisId: string): Promise<Briefing | null> {
+  const analysis = await getAnalysis(analysisId);
+  if (!analysis) return null;
+
+  const candidate = await getCandidate(analysis.candidateId);
+  const input: BriefingInput = {
+    name: candidate?.name ?? "Candidate",
+    role: analysis.role,
+    finalScore: analysis.finalScore,
+    similarityScore: analysis.similarityScore,
+    llmScore: analysis.llmScore,
+    status: analysis.status,
+    strengths: analysis.strengths,
+    gaps: analysis.gaps,
+    interviewQuestions: analysis.interviewQuestions,
+  };
+
+  let briefing: Briefing;
+  if (env.useDemoMode) {
+    briefing = getDemoBriefing(input);
+  } else {
+    try {
+      briefing = await generateBriefing(input);
+    } catch (error) {
+      if (!(error instanceof QuotaExceededError)) throw error;
+      briefing = getDemoBriefing(input);
+    }
+  }
+
+  await updateAnalysisBriefing(analysisId, briefing);
+  revalidatePath(`/projects/${analysis.projectId}`);
+  revalidatePath(`/candidates/${analysis.candidateId}`);
+  return briefing;
+}
+
+// Build a full Markdown report for a project, ready to download. Null when the
+// project no longer exists.
+export async function exportProjectMarkdown(projectId: string): Promise<ExportFile | null> {
+  const details = await getProjectDetails(projectId);
+  return details ? buildProjectMarkdown(details) : null;
+}
+
+// Build an ATS-ready JSON export for a project.
+export async function exportProjectJSON(projectId: string): Promise<ExportFile | null> {
+  const details = await getProjectDetails(projectId);
+  return details ? buildProjectJSON(details) : null;
+}
+
+// Build a short, HR-friendly plain-text summary of a project's top 3 candidates.
+export async function exportProjectTextSummary(projectId: string): Promise<ExportFile | null> {
+  const [details, top] = await Promise.all([
+    getProjectDetails(projectId),
+    getTopCandidates(projectId, 3),
+  ]);
+  return details ? buildProjectSummary(details, top) : null;
 }
 
 // Rank stored candidates against a free-text query for the candidates search

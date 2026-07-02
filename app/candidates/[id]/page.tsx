@@ -1,9 +1,23 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { BriefingPanel } from "@/components/briefing-panel";
+import type { Briefing } from "@/lib/briefing";
 import { getCandidate, listAnalysesByCandidate } from "@/lib/db/repository";
+import type { AnalysisRow } from "@/lib/db/schema";
 import { scoreColorClass } from "@/lib/multi";
 
 export const dynamic = "force-dynamic";
+
+// Assemble a stored briefing from an analysis row, or null when none exists yet.
+function toBriefing(analysis: AnalysisRow): Briefing | null {
+  if (!analysis.aiSummary) return null;
+  return {
+    aiSummary: analysis.aiSummary,
+    technicalSummary: analysis.technicalSummary ?? "",
+    hiringRecommendation: analysis.hiringRecommendation ?? "",
+    interviewFocus: analysis.interviewFocus ?? [],
+  };
+}
 
 export default async function CandidatePage({
   params,
@@ -44,23 +58,26 @@ export default async function CandidatePage({
           {analyses.length === 0 ? (
             <p className="text-sm text-zinc-600">No analyses yet.</p>
           ) : (
-            <ul className="flex flex-col gap-1.5">
+            <ul className="flex flex-col gap-3">
               {analyses.map((analysis) => (
                 <li
                   key={analysis.id}
-                  className="flex items-center justify-between rounded-lg border border-zinc-800 bg-zinc-900/40 px-3 py-2"
+                  className="flex flex-col gap-3 rounded-lg border border-zinc-800 bg-zinc-900/40 px-3 py-3"
                 >
-                  <span className="min-w-0 flex-1 truncate text-sm text-zinc-300">
-                    {analysis.role}
-                    <span className="ml-2 text-xs text-zinc-600">
-                      Sim {analysis.similarityScore} · LLM {analysis.llmScore}
+                  <div className="flex items-center justify-between">
+                    <span className="min-w-0 flex-1 truncate text-sm text-zinc-300">
+                      {analysis.role}
+                      <span className="ml-2 text-xs text-zinc-600">
+                        Sim {analysis.similarityScore} · LLM {analysis.llmScore}
+                      </span>
                     </span>
-                  </span>
-                  <span
-                    className={`shrink-0 text-sm font-semibold tabular-nums ${scoreColorClass(analysis.finalScore)}`}
-                  >
-                    {analysis.finalScore}
-                  </span>
+                    <span
+                      className={`shrink-0 text-sm font-semibold tabular-nums ${scoreColorClass(analysis.finalScore)}`}
+                    >
+                      {analysis.finalScore}
+                    </span>
+                  </div>
+                  <BriefingPanel analysisId={analysis.id} briefing={toBriefing(analysis)} />
                 </li>
               ))}
             </ul>

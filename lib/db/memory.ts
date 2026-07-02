@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { getDemoBriefing } from "@/lib/briefing";
 import { CANDIDATE_STATUSES } from "@/lib/constants";
 import type { AnalysisRow, CandidateRow, ProjectRow } from "@/lib/db/schema";
 import { getDemoAnalysisFor } from "@/lib/demo-analysis";
@@ -97,6 +98,17 @@ function seed(target: MemoryStore) {
       const demo = getDemoAnalysisFor(resume.id, seed.roleId);
       // Deterministic spread across pipeline stages so every status appears.
       const status = CANDIDATE_STATUSES[(index * 3 + candidateIndex) % CANDIDATE_STATUSES.length];
+      const briefing = getDemoBriefing({
+        name: resume.name,
+        role: seed.role,
+        finalScore: demo.finalScore,
+        similarityScore: demo.similarityScore,
+        llmScore: demo.llmScore,
+        status,
+        strengths: demo.strengths,
+        gaps: demo.gaps,
+        interviewQuestions: demo.interviewQuestions,
+      });
       target.analyses.push({
         id: randomUUID(),
         projectId,
@@ -112,6 +124,10 @@ function seed(target: MemoryStore) {
         strengths: demo.strengths,
         gaps: demo.gaps,
         interviewQuestions: demo.interviewQuestions,
+        aiSummary: briefing.aiSummary,
+        technicalSummary: briefing.technicalSummary,
+        hiringRecommendation: briefing.hiringRecommendation,
+        interviewFocus: briefing.interviewFocus,
         createdAt: new Date(now - index * 1000),
       });
     });

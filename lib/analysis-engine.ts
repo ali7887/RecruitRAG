@@ -1,9 +1,9 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import Anthropic from "@anthropic-ai/sdk";
-import { chunkText } from "@/lib/chunker";
-import { ANALYSIS_MODEL } from "@/lib/constants";
-import { embedChunks, embedText } from "@/lib/embeddings";
+import { semanticChunks } from "@/lib/chunker";
+import { ANALYSIS_MODEL, MAX_CONTEXT_CHUNKS, SEMANTIC_MIN_SIMILARITY } from "@/lib/constants";
+import { embedChunks, embedTextCached } from "@/lib/embeddings";
 import { env } from "@/lib/env";
 import {
   type Evidence,
@@ -17,7 +17,7 @@ import {
   llmScoreFromRubric,
   similarityToScore,
 } from "@/lib/scoring";
-import { retrieveTopChunks, type RankedChunk } from "@/lib/similarity";
+import { selectRelevantChunks, type RankedChunk } from "@/lib/similarity";
 import type { EmbeddedChunk } from "@/lib/types";
 
 const MAX_OUTPUT_TOKENS = 1536;
@@ -45,9 +45,16 @@ export async function analyzeResume(
   resumeText: string,
   jobDescription: string,
 ): Promise<EngineResult> {
-  const embeddedChunks = await embedChunks(chunkText(resumeText));
-  const queryVector = await embedText(jobDescription);
-  const topChunks = retrieveTopChunks(queryVector, embeddedChunks);
+  const embeddedChunks = await embedChunks(semanticChunks(resumeText));
+  const queryVector = await embedTextCached(jobDescription);
+  // Semantic chunking: only sections relevant to the query reach the LLM,
+  // reducing noise and token usage.
+  const topChunks = selectRelevantChunks(
+    queryVector,
+    embeddedChunks,
+    SEMANTIC_MIN_SIMILARITY,
+    MAX_CONTEXT_CHUNKS,
+  );
 
   const raw = await analyzeWithClaude(topChunks, jobDescription);
 

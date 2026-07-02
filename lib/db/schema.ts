@@ -1,9 +1,19 @@
 import { integer, jsonb, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
 import type { Evidence, RubricScores } from "@/lib/evaluation-rubric";
 
+// Tenant boundary (Phase 14). Projects and candidates belong to one workspace.
+export const workspaces = pgTable("workspaces", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 // Hiring projects (e.g. "Frontend Engineer — Berlin").
 export const projects = pgTable("projects", {
   id: uuid("id").primaryKey().defaultRandom(),
+  workspaceId: text("workspace_id")
+    .notNull()
+    .references(() => workspaces.id, { onDelete: "cascade" }),
   title: text("title").notNull(),
   description: text("description").notNull().default(""),
   // Target skills / keywords for the role, stored as free text.
@@ -14,6 +24,9 @@ export const projects = pgTable("projects", {
 // Stored candidate profiles with parsed resume text and a mean embedding.
 export const candidates = pgTable("candidates", {
   id: uuid("id").primaryKey().defaultRandom(),
+  workspaceId: text("workspace_id")
+    .notNull()
+    .references(() => workspaces.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
   email: text("email"),
   resumeText: text("resume_text").notNull().default(""),
@@ -58,10 +71,12 @@ export const analyses = pgTable("analyses", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+export type WorkspaceRow = typeof workspaces.$inferSelect;
 export type ProjectRow = typeof projects.$inferSelect;
 export type CandidateRow = typeof candidates.$inferSelect;
 export type AnalysisRow = typeof analyses.$inferSelect;
 
+export type NewWorkspace = typeof workspaces.$inferInsert;
 export type NewProject = typeof projects.$inferInsert;
 export type NewCandidate = typeof candidates.$inferInsert;
 export type NewAnalysis = typeof analyses.$inferInsert;

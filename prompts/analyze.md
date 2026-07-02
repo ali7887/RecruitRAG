@@ -10,8 +10,15 @@ Score each rubric dimension from 0–100:
 - communication (weight 0.10): collaboration, teamwork, and communication signals.
 - redFlagsPenalty (0–100): severity of gaps, missing must-haves, or red flags (0 = none, 100 = severe).
 
+Reference Benchmarks (anchor every score to these):
+- 90 — Excellent fit: the resume clearly evidences almost all required skills and seniority, with strong impact signals and no material gaps.
+- 50 — Partial fit: some required skills are evidenced but important ones are missing, weak, or only tangentially related.
+- 20 — Poor fit: little to no overlap with the required stack or role; the evidence is off-topic or absent.
+Interpolate between these anchors; do not cluster every candidate in the 70–90 band.
+
 Rules:
 - Base every score and list item strictly on the provided text.
+- Justify llm_score against the extracted evidence: it must be consistent with evidence.matchedSkills (raises the score) and evidence.missingSkills (lowers it). If matched skills are few and missing skills are many, the score must fall toward the 20–50 benchmarks.
 - strengths and gaps must each map to a rubric dimension and be a single concise line.
 - Keep all lists concise: max 5 items each, no paragraphs.
 - evidence.matchedSkills: JD-required skills clearly evidenced in the resume.

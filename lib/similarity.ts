@@ -31,3 +31,20 @@ export function retrieveTopChunks(
     .sort((a, b) => b.score - a.score)
     .slice(0, topK);
 }
+
+// Semantic selection (Phase 13): keep only sections whose similarity to the
+// query exceeds `minScore`, capped at `maxChunks`, to cut noise and tokens.
+// Falls back to the best `maxChunks` when nothing clears the threshold, so the
+// scoring LLM never receives empty context.
+export function selectRelevantChunks(
+  query: number[],
+  chunks: EmbeddedChunk[],
+  minScore: number,
+  maxChunks: number,
+): RankedChunk[] {
+  const ranked = chunks
+    .map((chunk) => ({ ...chunk, score: cosineSimilarity(query, chunk.embedding) }))
+    .sort((a, b) => b.score - a.score);
+  const relevant = ranked.filter((chunk) => chunk.score > minScore);
+  return (relevant.length ? relevant : ranked).slice(0, maxChunks);
+}

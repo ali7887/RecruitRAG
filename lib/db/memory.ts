@@ -1,10 +1,21 @@
 import { randomUUID } from "node:crypto";
 import { getDemoBriefing } from "@/lib/briefing";
 import { CANDIDATE_STATUSES } from "@/lib/constants";
-import type { AnalysisRow, CandidateRow, ProjectRow } from "@/lib/db/schema";
+import type { AnalysisRow, CandidateRow, ProjectRow, WorkspaceRow } from "@/lib/db/schema";
 import { getDemoAnalysisFor } from "@/lib/demo-analysis";
 import { SAMPLE_JOB_DESCRIPTIONS, SAMPLE_RESUMES } from "@/lib/demo-content";
 import { getDemoParsedResume } from "@/lib/resume-parser";
+
+// Seeded workspaces (mirror lib/workspace.ts DEMO_WORKSPACES).
+const WS_STARTUP = "ws-startup";
+const WS_AUTOMOTIVE = "ws-automotive";
+
+// Which workspace each sample candidate belongs to.
+const CANDIDATE_WORKSPACE: Record<string, string> = {
+  amir: WS_STARTUP,
+  leo: WS_STARTUP,
+  sara: WS_AUTOMOTIVE,
+};
 
 // One sample recruiter note per seeded candidate, so the notes UI looks alive.
 const SEED_NOTES = [
@@ -14,6 +25,7 @@ const SEED_NOTES = [
 ];
 
 export interface MemoryStore {
+  workspaces: WorkspaceRow[];
   projects: ProjectRow[];
   candidates: CandidateRow[];
   analyses: AnalysisRow[];
@@ -25,20 +37,21 @@ let store: MemoryStore | null = null;
 // running server. Resets on cold start — acceptable for the demo fallback.
 export function getMemoryStore(): MemoryStore {
   if (!store) {
-    store = { projects: [], candidates: [], analyses: [] };
+    store = { workspaces: [], projects: [], candidates: [], analyses: [] };
     seed(store);
   }
   return store;
 }
 
-// The three demo projects. `roleId` drives deterministic demo scoring so each
-// sample candidate tops exactly one board; `role` is the display label.
+// Demo projects. `roleId` drives deterministic scoring; `workspaceId` isolates
+// each project to a tenant.
 const SEED_PROJECTS: {
   title: string;
   description: string;
   requirements: string;
   role: string;
   roleId: string;
+  workspaceId: string;
 }[] = [
   {
     title: "Frontend Engineer (Next.js/TS)",
@@ -46,6 +59,7 @@ const SEED_PROJECTS: {
     requirements: "React, TypeScript, Next.js, Tailwind CSS, Accessibility",
     role: "Frontend",
     roleId: "frontend",
+    workspaceId: WS_STARTUP,
   },
   {
     title: "AI RAG specialist",
@@ -53,6 +67,7 @@ const SEED_PROJECTS: {
     requirements: "RAG, Embeddings, Vector search, LLM APIs, TypeScript",
     role: "AI Engineer",
     roleId: "ai",
+    workspaceId: WS_STARTUP,
   },
   {
     title: "DevOps / Infrastructure",
@@ -60,13 +75,19 @@ const SEED_PROJECTS: {
     requirements: "CI/CD, PostgreSQL, Node.js, Cloud, Observability",
     role: "DevOps",
     roleId: "fullstack",
+    workspaceId: WS_AUTOMOTIVE,
   },
 ];
 
 function seed(target: MemoryStore) {
   const now = Date.now();
 
-  // One candidate per sample resume; remember sampleId → generated uuid.
+  target.workspaces.push(
+    { id: WS_STARTUP, name: "Tech Startup Hub", createdAt: new Date(now) },
+    { id: WS_AUTOMOTIVE, name: "Automotive Tech GmbH", createdAt: new Date(now) },
+  );
+
+  // One candidate per sample resume, isolated to its workspace.
   const candidateIdBySample = new Map<string, string>();
   SAMPLE_RESUMES.forEach((resume, index) => {
     const id = randomUUID();
@@ -74,6 +95,7 @@ function seed(target: MemoryStore) {
     const parsed = getDemoParsedResume(resume.text);
     target.candidates.push({
       id,
+      workspaceId: CANDIDATE_WORKSPACE[resume.id] ?? WS_STARTUP,
       name: resume.name,
       email: null,
       resumeText: resume.text,
@@ -86,12 +108,13 @@ function seed(target: MemoryStore) {
     });
   });
 
-  // One project per seed role, each with an analysis for every candidate
-  // (3 projects × 3 candidates = 9 analyses).
+  // Each project gets an analysis only for candidates in the same workspace, so
+  // tenants stay strictly isolated.
   SEED_PROJECTS.forEach((seed, index) => {
     const projectId = randomUUID();
     target.projects.push({
       id: projectId,
+      workspaceId: seed.workspaceId,
       title: seed.title,
       description: seed.description,
       requirements: seed.requirements,
@@ -99,6 +122,7 @@ function seed(target: MemoryStore) {
     });
 
     SAMPLE_RESUMES.forEach((resume, candidateIndex) => {
+      if ((CANDIDATE_WORKSPACE[resume.id] ?? WS_STARTUP) !== seed.workspaceId) return;
       const candidateId = candidateIdBySample.get(resume.id);
       if (!candidateId) return;
       const demo = getDemoAnalysisFor(resume.id, seed.roleId);

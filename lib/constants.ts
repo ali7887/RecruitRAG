@@ -7,6 +7,11 @@ export const CHUNK_MIN_WORDS = 300;
 export const CHUNK_MAX_WORDS = 500;
 export const RETRIEVAL_TOP_K = 3;
 
+// Semantic chunk selection (Phase 13): only sections whose cosine similarity to
+// the query exceeds the threshold are sent to the scoring LLM, up to the cap.
+export const SEMANTIC_MIN_SIMILARITY = 0.4;
+export const MAX_CONTEXT_CHUNKS = 6;
+
 // Candidate pipeline (Phase 8). Order reflects funnel progression.
 export const CANDIDATE_STATUSES = [
   "sourced",

@@ -1,10 +1,12 @@
 import { DashboardCharts } from "@/components/dashboard-charts";
 import { getDashboardData } from "@/lib/analytics";
+import { getWorkspaceContext } from "@/lib/workspace";
 
 export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
-  const data = await getDashboardData();
+  const { workspaceId } = await getWorkspaceContext();
+  const data = await getDashboardData(workspaceId);
 
   return (
     <main className="mx-auto w-full max-w-5xl px-6 py-10">

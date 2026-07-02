@@ -1,11 +1,13 @@
 import Link from "next/link";
 import { SearchBar } from "@/components/search-bar";
 import { listCandidates } from "@/lib/db/repository";
+import { getWorkspaceContext } from "@/lib/workspace";
 
 export const dynamic = "force-dynamic";
 
 export default async function CandidatesPage() {
-  const candidates = await listCandidates();
+  const { workspaceId } = await getWorkspaceContext();
+  const candidates = await listCandidates(workspaceId);
 
   return (
     <main className="mx-auto w-full max-w-4xl px-6 py-10">

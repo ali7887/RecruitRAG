@@ -7,16 +7,18 @@ import {
   getTopCandidates,
 } from "@/lib/portfolio-analytics";
 import { matchQualityLabel, scoreColorClass } from "@/lib/multi";
+import { getWorkspaceContext } from "@/lib/workspace";
 
 export const dynamic = "force-dynamic";
 
 export default async function InsightsPage() {
+  const { workspaceId } = await getWorkspaceContext();
   const [stats, topCandidates, difficulty, skillTrends, reusable] = await Promise.all([
-    getPortfolioStats(),
-    getTopCandidates(10),
-    getProjectDifficultyRanking(),
-    getSkillTrends(),
-    getReusableCandidates(),
+    getPortfolioStats(workspaceId),
+    getTopCandidates(workspaceId, 10),
+    getProjectDifficultyRanking(workspaceId),
+    getSkillTrends(workspaceId),
+    getReusableCandidates(workspaceId),
   ]);
 
   return (

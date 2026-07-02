@@ -12,7 +12,13 @@ type Filter = CandidateStatus | "all";
 // Project candidate board: ranked rows with an inline status dropdown, an
 // expandable notes editor, and a status filter toolbar. Interactive, so it
 // owns the client-side filter state and calls the analysis Server Actions.
-export function CandidateBoard({ analyses }: { analyses: ProjectAnalysis[] }) {
+export function CandidateBoard({
+  analyses,
+  canWrite,
+}: {
+  analyses: ProjectAnalysis[];
+  canWrite: boolean;
+}) {
   const [filter, setFilter] = useState<Filter>("all");
   const visible = filter === "all" ? analyses : analyses.filter((a) => a.status === filter);
 
@@ -44,7 +50,7 @@ export function CandidateBoard({ analyses }: { analyses: ProjectAnalysis[] }) {
       ) : (
         <ul className="flex flex-col gap-1.5">
           {visible.map((analysis) => (
-            <BoardRow key={analysis.analysisId} analysis={analysis} />
+            <BoardRow key={analysis.analysisId} analysis={analysis} canWrite={canWrite} />
           ))}
         </ul>
       )}
@@ -75,7 +81,7 @@ function FilterChip({
   );
 }
 
-function BoardRow({ analysis }: { analysis: ProjectAnalysis }) {
+function BoardRow({ analysis, canWrite }: { analysis: ProjectAnalysis; canWrite: boolean }) {
   const [status, setStatus] = useState<CandidateStatus>(analysis.status);
   const [notes, setNotes] = useState(analysis.notes);
   const [draft, setDraft] = useState(analysis.notes);
@@ -111,7 +117,7 @@ function BoardRow({ analysis }: { analysis: ProjectAnalysis }) {
         <select
           value={status}
           onChange={(event) => changeStatus(event.target.value as CandidateStatus)}
-          disabled={isPending}
+          disabled={isPending || !canWrite}
           aria-label="Pipeline status"
           className={`shrink-0 rounded-md border bg-zinc-900 px-2 py-1 text-xs capitalize outline-none disabled:opacity-60 ${statusColorClass(status)}`}
         >
@@ -158,20 +164,26 @@ function BoardRow({ analysis }: { analysis: ProjectAnalysis }) {
           </div>
         </div>
       ) : notes ? (
-        <button
-          onClick={() => setEditing(true)}
-          className="text-left text-xs text-zinc-500 hover:text-zinc-300"
-        >
-          <span className="text-zinc-600">Note:</span> {notes}
-        </button>
-      ) : (
+        canWrite ? (
+          <button
+            onClick={() => setEditing(true)}
+            className="text-left text-xs text-zinc-500 hover:text-zinc-300"
+          >
+            <span className="text-zinc-600">Note:</span> {notes}
+          </button>
+        ) : (
+          <p className="text-xs text-zinc-500">
+            <span className="text-zinc-600">Note:</span> {notes}
+          </p>
+        )
+      ) : canWrite ? (
         <button
           onClick={() => setEditing(true)}
           className="self-start text-xs text-zinc-600 hover:text-cyan-300"
         >
           + Add note
         </button>
-      )}
+      ) : null}
     </li>
   );
 }

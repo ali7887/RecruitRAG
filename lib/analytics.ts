@@ -29,25 +29,31 @@ export interface DashboardData {
 const TOP_SKILLS = 8;
 const BUCKET_COUNT = 10; // 0–9, 10–19, … 90–100
 
-// Average score, candidate and analysis totals across all stored analyses.
-export async function getGlobalStats(): Promise<GlobalStats> {
-  const [rows, candidates] = await Promise.all([listAnalyses(), listCandidates()]);
+// Average score, candidate and analysis totals across the workspace's analyses.
+export async function getGlobalStats(workspaceId: string): Promise<GlobalStats> {
+  const [rows, candidates] = await Promise.all([
+    listAnalyses(workspaceId),
+    listCandidates(workspaceId),
+  ]);
   return computeGlobalStats(rows, candidates.length);
 }
 
 // Occurrence count of every matched skill in analysis evidence, most common first.
-export async function getSkillDistribution(): Promise<SkillCount[]> {
-  return computeSkillDistribution(await listAnalyses());
+export async function getSkillDistribution(workspaceId: string): Promise<SkillCount[]> {
+  return computeSkillDistribution(await listAnalyses(workspaceId));
 }
 
 // Final-score histogram in ten equal 10-point buckets.
-export async function getScoreDistribution(): Promise<ScoreBucket[]> {
-  return computeScoreDistribution(await listAnalyses());
+export async function getScoreDistribution(workspaceId: string): Promise<ScoreBucket[]> {
+  return computeScoreDistribution(await listAnalyses(workspaceId));
 }
 
 // Single fetch + compute for the page, honoring the "no heavy work in render" rule.
-export async function getDashboardData(): Promise<DashboardData> {
-  const [rows, candidates] = await Promise.all([listAnalyses(), listCandidates()]);
+export async function getDashboardData(workspaceId: string): Promise<DashboardData> {
+  const [rows, candidates] = await Promise.all([
+    listAnalyses(workspaceId),
+    listCandidates(workspaceId),
+  ]);
   return {
     stats: computeGlobalStats(rows, candidates.length),
     skills: computeSkillDistribution(rows),

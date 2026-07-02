@@ -9,9 +9,11 @@ import type { Briefing } from "@/lib/briefing";
 export function BriefingPanel({
   analysisId,
   briefing: initial,
+  canWrite,
 }: {
   analysisId: string;
   briefing: Briefing | null;
+  canWrite: boolean;
 }) {
   const [briefing, setBriefing] = useState<Briefing | null>(initial);
   const [isPending, startTransition] = useTransition();
@@ -29,13 +31,15 @@ export function BriefingPanel({
         <h4 className="text-xs font-medium uppercase tracking-widest text-zinc-500">
           AI briefing
         </h4>
-        <button
-          onClick={generate}
-          disabled={isPending}
-          className="rounded-lg border border-cyan-500/40 px-2.5 py-1 text-xs font-medium text-cyan-300 transition-colors hover:bg-cyan-500/10 disabled:opacity-50"
-        >
-          {isPending ? "Generating…" : briefing ? "Regenerate" : "Generate briefing"}
-        </button>
+        {canWrite && (
+          <button
+            onClick={generate}
+            disabled={isPending}
+            className="rounded-lg border border-cyan-500/40 px-2.5 py-1 text-xs font-medium text-cyan-300 transition-colors hover:bg-cyan-500/10 disabled:opacity-50"
+          >
+            {isPending ? "Generating…" : briefing ? "Regenerate" : "Generate briefing"}
+          </button>
+        )}
       </div>
 
       {briefing ? (

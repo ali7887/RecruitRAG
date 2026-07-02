@@ -87,6 +87,23 @@ export async function embedText(text: string): Promise<number[]> {
   return embedding;
 }
 
+// Simple process-lifetime cache for single-text embeddings (Phase 13). Repeated
+// queries / job descriptions within a session skip the API call. Bounded so it
+// cannot grow without limit.
+const EMBEDDING_CACHE_MAX = 500;
+const embeddingCache = new Map<string, number[]>();
+
+export async function embedTextCached(text: string): Promise<number[]> {
+  const key = text.trim();
+  const cached = embeddingCache.get(key);
+  if (cached) return cached;
+
+  const embedding = await embedText(key);
+  if (embeddingCache.size >= EMBEDDING_CACHE_MAX) embeddingCache.clear();
+  embeddingCache.set(key, embedding);
+  return embedding;
+}
+
 // Embed all chunks in sequential batches, preserving chunk order.
 export async function embedChunks(chunks: Chunk[]): Promise<EmbeddedChunk[]> {
   if (chunks.length === 0) return [];

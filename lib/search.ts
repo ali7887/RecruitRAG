@@ -1,15 +1,22 @@
-import { listAnalysesByProject, listCandidates } from "@/lib/db/repository";
-import { embedText } from "@/lib/embeddings";
+import { getProject, listAnalysesByProject, listCandidates } from "@/lib/db/repository";
+import { embedTextCached } from "@/lib/embeddings";
 import { env } from "@/lib/env";
+import {
+  calibrateSimilarity,
+  expandQuery,
+  matchStrengthLabel,
+  mockRawCosine,
+} from "@/lib/rag-optimizer";
 import { cosineSimilarity } from "@/lib/similarity";
 import type { CandidateRow } from "@/lib/db/schema";
 
-// A candidate ranked against a search query. Score is 0–100 for display.
+// A candidate ranked against a search query. Score is 0–100 (calibrated).
 export interface CandidateMatch {
   id: string;
   name: string;
   email: string | null;
   score: number;
+  strength: string;
   snippet: string;
 }
 
@@ -23,28 +30,37 @@ const SNIPPET_LENGTH = 140;
 // term-frequency cosine over the raw resume text gives stable, offline results.
 export async function searchCandidates(
   query: string,
+  workspaceId: string,
   projectId?: string,
 ): Promise<CandidateMatch[]> {
   const trimmed = query.trim();
   if (!trimmed) return [];
 
-  let candidates = await listCandidates();
-  // Restrict to candidates analyzed within a specific project when scoped.
+  let candidates = await listCandidates(workspaceId);
+  // Restrict to candidates analyzed within a specific project when scoped, and
+  // bias the query toward that project's keywords (Phase 13 query expansion).
+  let expandedQuery = trimmed;
   if (projectId) {
-    const analyses = await listAnalysesByProject(projectId);
+    const [analyses, project] = await Promise.all([
+      listAnalysesByProject(projectId),
+      getProject(projectId, workspaceId),
+    ]);
     const inProject = new Set(analyses.map((analysis) => analysis.candidateId));
     candidates = candidates.filter((candidate) => inProject.has(candidate.id));
+    expandedQuery = expandQuery(trimmed, project?.requirements);
   }
   if (candidates.length === 0) return [];
 
   const canEmbed =
     !env.useDemoMode && candidates.some((candidate) => candidate.resumeEmbedding?.length);
 
+  // Scores are calibrated to 0–100. Demo/lexical signals are run through the
+  // same calibration via mocked raw cosines.
   const scored = canEmbed
-    ? await semanticScores(trimmed, candidates)
+    ? await semanticScores(expandedQuery, candidates)
     : candidates.map((candidate) => ({
         candidate,
-        score: lexicalScore(trimmed, candidate.resumeText),
+        score: calibrateSimilarity(mockRawCosine(lexicalScore(expandedQuery, candidate.resumeText))),
       }));
 
   return scored
@@ -56,23 +72,26 @@ async function semanticScores(
   query: string,
   candidates: CandidateRow[],
 ): Promise<{ candidate: CandidateRow; score: number }[]> {
-  const queryEmbedding = await embedText(query);
+  const queryEmbedding = await embedTextCached(query);
   return candidates.map((candidate) => ({
     candidate,
-    // Candidates without a stored vector fall back to lexical relevance.
+    // Candidates without a stored vector fall back to lexical relevance, mapped
+    // into the raw-cosine band so both paths share one calibration.
     score: candidate.resumeEmbedding?.length
-      ? cosineSimilarity(queryEmbedding, candidate.resumeEmbedding)
-      : lexicalScore(query, candidate.resumeText),
+      ? calibrateSimilarity(cosineSimilarity(queryEmbedding, candidate.resumeEmbedding))
+      : calibrateSimilarity(mockRawCosine(lexicalScore(query, candidate.resumeText))),
   }));
 }
 
-function toMatch(candidate: CandidateRow, similarity: number): CandidateMatch {
+function toMatch(candidate: CandidateRow, score: number): CandidateMatch {
   const text = candidate.resumeText.trim();
+  const calibrated = Math.max(0, Math.min(100, Math.round(score)));
   return {
     id: candidate.id,
     name: candidate.name,
     email: candidate.email,
-    score: Math.round(Math.max(0, Math.min(1, similarity)) * 100),
+    score: calibrated,
+    strength: matchStrengthLabel(calibrated),
     snippet: text.length > SNIPPET_LENGTH ? `${text.slice(0, SNIPPET_LENGTH)}…` : text,
   };
 }

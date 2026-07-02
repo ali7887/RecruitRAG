@@ -33,10 +33,11 @@ function briefingFromRow(row: AnalysisRow): Briefing | null {
 // Two queries (candidate's analyses + all project titles), joined in memory.
 export async function getCandidateProjectHistory(
   candidateId: string,
+  workspaceId: string,
 ): Promise<CandidateProjectFit[]> {
   const [rows, allProjects] = await Promise.all([
     listAnalysesByCandidate(candidateId),
-    listProjects(),
+    listProjects(workspaceId),
   ]);
   const titleById = new Map(allProjects.map((project) => [project.id, project.title]));
 
@@ -60,7 +61,8 @@ export async function getCandidateProjectHistory(
 // The candidate's strongest project alignment, or null if never analyzed.
 export async function getBestProjectFit(
   candidateId: string,
+  workspaceId: string,
 ): Promise<CandidateProjectFit | null> {
-  const history = await getCandidateProjectHistory(candidateId);
+  const history = await getCandidateProjectHistory(candidateId, workspaceId);
   return history[0] ?? null;
 }

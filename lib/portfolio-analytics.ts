@@ -54,11 +54,11 @@ const RUBRIC_LABELS: Record<keyof RubricScores, string> = {
 const RUBRIC_KEYS = Object.keys(RUBRIC_LABELS) as (keyof RubricScores)[];
 
 // Section A — headline counts and the mean match score across all analyses.
-export async function getPortfolioStats(): Promise<PortfolioStats> {
+export async function getPortfolioStats(workspaceId: string): Promise<PortfolioStats> {
   const [projects, candidates, analyses] = await Promise.all([
-    listProjects(),
-    listCandidates(),
-    listAnalyses(),
+    listProjects(workspaceId),
+    listCandidates(workspaceId),
+    listAnalyses(workspaceId),
   ]);
 
   return {
@@ -72,11 +72,14 @@ export async function getPortfolioStats(): Promise<PortfolioStats> {
 }
 
 // Section B — candidates evaluated across 2+ projects, ranked by mean score.
-export async function getTopCandidates(limit = 10): Promise<TopCandidate[]> {
+export async function getTopCandidates(
+  workspaceId: string,
+  limit = 10,
+): Promise<TopCandidate[]> {
   const [analyses, candidates, projects] = await Promise.all([
-    listAnalyses(),
-    listCandidates(),
-    listProjects(),
+    listAnalyses(workspaceId),
+    listCandidates(workspaceId),
+    listProjects(workspaceId),
   ]);
   const nameById = new Map(candidates.map((c) => [c.id, c.name]));
   const titleById = new Map(projects.map((p) => [p.id, p.title]));
@@ -106,8 +109,13 @@ export async function getTopCandidates(limit = 10): Promise<TopCandidate[]> {
 }
 
 // Section C — projects ranked hardest-first (lowest average match score).
-export async function getProjectDifficultyRanking(): Promise<ProjectDifficulty[]> {
-  const [analyses, projects] = await Promise.all([listAnalyses(), listProjects()]);
+export async function getProjectDifficultyRanking(
+  workspaceId: string,
+): Promise<ProjectDifficulty[]> {
+  const [analyses, projects] = await Promise.all([
+    listAnalyses(workspaceId),
+    listProjects(workspaceId),
+  ]);
   const byProject = groupBy(analyses, (a) => a.projectId);
 
   return projects
@@ -126,11 +134,13 @@ export async function getProjectDifficultyRanking(): Promise<ProjectDifficulty[]
 }
 
 // Section E — strong, consistent candidates reusable across multiple projects.
-export async function getReusableCandidates(): Promise<ReusableCandidate[]> {
+export async function getReusableCandidates(
+  workspaceId: string,
+): Promise<ReusableCandidate[]> {
   const [analyses, candidates, projects] = await Promise.all([
-    listAnalyses(),
-    listCandidates(),
-    listProjects(),
+    listAnalyses(workspaceId),
+    listCandidates(workspaceId),
+    listProjects(workspaceId),
   ]);
   const nameById = new Map(candidates.map((c) => [c.id, c.name]));
   const titleById = new Map(projects.map((p) => [p.id, p.title]));
@@ -161,8 +171,8 @@ export async function getReusableCandidates(): Promise<ReusableCandidate[]> {
 }
 
 // Section D — mean of each rubric dimension across all analyses, normalized 0–1.
-export async function getSkillTrends(): Promise<SkillTrend[]> {
-  const analyses = await listAnalyses();
+export async function getSkillTrends(workspaceId: string): Promise<SkillTrend[]> {
+  const analyses = await listAnalyses(workspaceId);
   const rubrics = analyses
     .map((a) => a.rubricScores)
     .filter((r): r is RubricScores => r != null);

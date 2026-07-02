@@ -2,11 +2,14 @@ import Link from "next/link";
 import { ScoreRing } from "@/components/score-ring";
 import { createProjectAction } from "@/lib/actions";
 import { listProjectSummaries } from "@/lib/db/repository";
+import { canWrite, getWorkspaceContext } from "@/lib/workspace";
 
 export const dynamic = "force-dynamic";
 
 export default async function ProjectsPage() {
-  const projects = await listProjectSummaries();
+  const { workspaceId, role } = await getWorkspaceContext();
+  const writable = canWrite(role);
+  const projects = await listProjectSummaries(workspaceId);
 
   return (
     <main className="mx-auto w-full max-w-5xl px-6 py-10">
@@ -25,25 +28,29 @@ export default async function ProjectsPage() {
           <input
             name="title"
             required
+            disabled={!writable}
             placeholder="Senior React Developer"
-            className="rounded-xl border border-zinc-800 bg-zinc-950/40 px-3 py-2 text-sm text-zinc-200 placeholder:text-zinc-600 focus:border-cyan-500/40 focus:outline-none"
+            className="rounded-xl border border-zinc-800 bg-zinc-950/40 px-3 py-2 text-sm text-zinc-200 placeholder:text-zinc-600 focus:border-cyan-500/40 focus:outline-none disabled:opacity-50"
           />
           <textarea
             name="description"
             rows={3}
+            disabled={!writable}
             placeholder="Paste the job description…"
-            className="resize-none rounded-xl border border-zinc-800 bg-zinc-950/40 px-3 py-2 text-sm text-zinc-200 placeholder:text-zinc-600 focus:border-cyan-500/40 focus:outline-none"
+            className="resize-none rounded-xl border border-zinc-800 bg-zinc-950/40 px-3 py-2 text-sm text-zinc-200 placeholder:text-zinc-600 focus:border-cyan-500/40 focus:outline-none disabled:opacity-50"
           />
           <input
             name="requirements"
+            disabled={!writable}
             placeholder="Target keywords — e.g. React, TypeScript, Next.js"
-            className="rounded-xl border border-zinc-800 bg-zinc-950/40 px-3 py-2 text-sm text-zinc-200 placeholder:text-zinc-600 focus:border-cyan-500/40 focus:outline-none"
+            className="rounded-xl border border-zinc-800 bg-zinc-950/40 px-3 py-2 text-sm text-zinc-200 placeholder:text-zinc-600 focus:border-cyan-500/40 focus:outline-none disabled:opacity-50"
           />
           <button
             type="submit"
-            className="h-10 self-start rounded-xl bg-cyan-600 px-4 text-sm font-medium text-white transition-colors hover:bg-cyan-500"
+            disabled={!writable}
+            className="h-10 self-start rounded-xl bg-cyan-600 px-4 text-sm font-medium text-white transition-colors hover:bg-cyan-500 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            Create project
+            {writable ? "Create project" : "Viewer — read only"}
           </button>
         </form>
 

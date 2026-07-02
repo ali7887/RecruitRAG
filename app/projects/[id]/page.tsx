@@ -6,6 +6,7 @@ import { ScoreRing } from "@/components/score-ring";
 import { SearchBar } from "@/components/search-bar";
 import { analyzeCandidateAction } from "@/lib/actions";
 import { getProjectDetails } from "@/lib/db/repository";
+import { canWrite, getWorkspaceContext } from "@/lib/workspace";
 
 export const dynamic = "force-dynamic";
 
@@ -23,7 +24,9 @@ export default async function ProjectPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const details = await getProjectDetails(id);
+  const { workspaceId, role } = await getWorkspaceContext();
+  const writable = canWrite(role);
+  const details = await getProjectDetails(id, workspaceId);
   if (!details) notFound();
 
   const { project, analyses, candidateCount, averageScore } = details;
@@ -90,13 +93,15 @@ export default async function ProjectPage({
                 name="file"
                 accept="application/pdf"
                 required
-                className="rounded-xl border border-zinc-800 bg-zinc-950/40 px-3 py-2 text-sm text-zinc-400 file:mr-3 file:rounded-md file:border-0 file:bg-zinc-800 file:px-2 file:py-1 file:text-xs file:text-zinc-200"
+                disabled={!writable}
+                className="rounded-xl border border-zinc-800 bg-zinc-950/40 px-3 py-2 text-sm text-zinc-400 file:mr-3 file:rounded-md file:border-0 file:bg-zinc-800 file:px-2 file:py-1 file:text-xs file:text-zinc-200 disabled:opacity-50"
               />
               <button
                 type="submit"
-                className="h-10 self-start rounded-xl bg-cyan-600 px-4 text-sm font-medium text-white transition-colors hover:bg-cyan-500"
+                disabled={!writable}
+                className="h-10 self-start rounded-xl bg-cyan-600 px-4 text-sm font-medium text-white transition-colors hover:bg-cyan-500 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                Analyze &amp; add
+                {writable ? "Analyze & add" : "Viewer — read only"}
               </button>
             </form>
           </div>
@@ -110,7 +115,7 @@ export default async function ProjectPage({
               <ExportToolbar projectId={project.id} />
             </div>
             <SearchBar projectId={project.id} placeholder="Search candidates in this project…" />
-            <CandidateBoard analyses={analyses} />
+            <CandidateBoard analyses={analyses} canWrite={writable} />
           </section>
         </div>
       </div>

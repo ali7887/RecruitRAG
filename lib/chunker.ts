@@ -24,3 +24,30 @@ export function chunkText(text: string): Chunk[] {
 
   return chunks.map((chunkText, id) => ({ id, text: chunkText }));
 }
+
+// Semantic chunking (Phase 13): split normalized resume text into logical
+// sections on blank-line boundaries, keeping each section whole unless it
+// exceeds the word cap (then it's word-windowed). Text with no blank-line
+// structure falls back to fixed word-window chunking.
+export function semanticChunks(text: string): Chunk[] {
+  const sections = text
+    .split(/\n{2,}/)
+    .map((section) => section.trim())
+    .filter(Boolean);
+
+  if (sections.length <= 1) return chunkText(text);
+
+  const pieces: string[] = [];
+  for (const section of sections) {
+    const words = section.split(/\s+/).filter(Boolean);
+    if (words.length <= CHUNK_MAX_WORDS) {
+      pieces.push(section);
+      continue;
+    }
+    for (let i = 0; i < words.length; i += CHUNK_MAX_WORDS) {
+      pieces.push(words.slice(i, i + CHUNK_MAX_WORDS).join(" "));
+    }
+  }
+
+  return pieces.map((sectionText, id) => ({ id, text: sectionText }));
+}

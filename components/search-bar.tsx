@@ -82,9 +82,14 @@ export function SearchBar({
                         <p className="mt-0.5 truncate text-xs text-zinc-500">{match.snippet}</p>
                       )}
                     </div>
-                    <span className="shrink-0 rounded-full border border-cyan-500/30 bg-cyan-500/10 px-2 py-0.5 text-xs font-semibold tabular-nums text-cyan-300">
-                      {match.score}%
-                    </span>
+                    <div className="flex shrink-0 flex-col items-end gap-1">
+                      <span className="rounded-full border border-cyan-500/30 bg-cyan-500/10 px-2 py-0.5 text-xs font-semibold tabular-nums text-cyan-300">
+                        {match.score}%
+                      </span>
+                      <span className="text-[10px] uppercase tracking-wide text-zinc-500">
+                        {match.strength}
+                      </span>
+                    </div>
                   </Link>
                 </li>
               ))}

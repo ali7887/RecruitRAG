@@ -1,14 +1,16 @@
 import { randomUUID } from "node:crypto";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { getDb } from "@/lib/db/client";
 import { getMemoryStore } from "@/lib/db/memory";
 import {
   analyses,
   candidates,
   projects,
+  workspaces,
   type AnalysisRow,
   type CandidateRow,
   type ProjectRow,
+  type WorkspaceRow,
 } from "@/lib/db/schema";
 import type { Briefing } from "@/lib/briefing";
 import { DEFAULT_CANDIDATE_STATUS, type CandidateStatus } from "@/lib/constants";
@@ -16,6 +18,7 @@ import type { Evidence, RubricScores } from "@/lib/evaluation-rubric";
 import type { ParsedResume } from "@/lib/resume-parser";
 
 export interface NewProjectInput {
+  workspaceId: string;
   title: string;
   description?: string;
   requirements?: string;
@@ -52,6 +55,7 @@ export interface ProjectSummary extends ProjectRow {
 }
 
 export interface UpsertCandidateInput {
+  workspaceId: string;
   name: string;
   email?: string | null;
   resumeText: string;
@@ -80,20 +84,42 @@ export function isPersistent(): boolean {
   return getDb() !== null;
 }
 
-export async function listProjects(): Promise<ProjectRow[]> {
+export async function listWorkspaces(): Promise<WorkspaceRow[]> {
   const db = getDb();
   if (!db) {
-    return [...getMemoryStore().projects].sort(byNewest);
+    return [...getMemoryStore().workspaces];
   }
-  return db.select().from(projects).orderBy(desc(projects.createdAt));
+  return db.select().from(workspaces).orderBy(desc(workspaces.createdAt));
 }
 
-export async function getProject(id: string): Promise<ProjectRow | null> {
+export async function listProjects(workspaceId: string): Promise<ProjectRow[]> {
   const db = getDb();
   if (!db) {
-    return getMemoryStore().projects.find((project) => project.id === id) ?? null;
+    return getMemoryStore()
+      .projects.filter((project) => project.workspaceId === workspaceId)
+      .sort(byNewest);
   }
-  const rows = await db.select().from(projects).where(eq(projects.id, id)).limit(1);
+  return db
+    .select()
+    .from(projects)
+    .where(eq(projects.workspaceId, workspaceId))
+    .orderBy(desc(projects.createdAt));
+}
+
+export async function getProject(id: string, workspaceId: string): Promise<ProjectRow | null> {
+  const db = getDb();
+  if (!db) {
+    return (
+      getMemoryStore().projects.find(
+        (project) => project.id === id && project.workspaceId === workspaceId,
+      ) ?? null
+    );
+  }
+  const rows = await db
+    .select()
+    .from(projects)
+    .where(and(eq(projects.id, id), eq(projects.workspaceId, workspaceId)))
+    .limit(1);
   return rows[0] ?? null;
 }
 
@@ -102,6 +128,7 @@ export async function createProject(input: NewProjectInput): Promise<ProjectRow>
   if (!db) {
     const project: ProjectRow = {
       id: randomUUID(),
+      workspaceId: input.workspaceId,
       title: input.title,
       description: input.description ?? "",
       requirements: input.requirements ?? "",
@@ -113,6 +140,7 @@ export async function createProject(input: NewProjectInput): Promise<ProjectRow>
   const rows = await db
     .insert(projects)
     .values({
+      workspaceId: input.workspaceId,
       title: input.title,
       description: input.description ?? "",
       requirements: input.requirements ?? "",
@@ -123,8 +151,11 @@ export async function createProject(input: NewProjectInput): Promise<ProjectRow>
 
 // Projects with per-project metrics for the dashboard grid. Fetches all
 // analyses once and groups in memory to avoid a query per project.
-export async function listProjectSummaries(): Promise<ProjectSummary[]> {
-  const [allProjects, allAnalyses] = await Promise.all([listProjects(), listAnalyses()]);
+export async function listProjectSummaries(workspaceId: string): Promise<ProjectSummary[]> {
+  const [allProjects, allAnalyses] = await Promise.all([
+    listProjects(workspaceId),
+    listAnalyses(workspaceId),
+  ]);
   const byProject = new Map<string, AnalysisRow[]>();
   for (const analysis of allAnalyses) {
     const bucket = byProject.get(analysis.projectId);
@@ -142,13 +173,16 @@ export async function listProjectSummaries(): Promise<ProjectSummary[]> {
 }
 
 // A project with its scored candidates (highest match first) and metrics.
-export async function getProjectDetails(id: string): Promise<ProjectDetails | null> {
-  const project = await getProject(id);
+export async function getProjectDetails(
+  id: string,
+  workspaceId: string,
+): Promise<ProjectDetails | null> {
+  const project = await getProject(id, workspaceId);
   if (!project) return null;
 
   const [rows, allCandidates] = await Promise.all([
     listAnalysesByProject(id),
-    listCandidates(),
+    listCandidates(workspaceId),
   ]);
   const nameById = new Map(allCandidates.map((candidate) => [candidate.id, candidate.name]));
 
@@ -181,28 +215,66 @@ export async function getProjectDetails(id: string): Promise<ProjectDetails | nu
 // by match in getProjectDetails). Empty when the project is missing.
 export async function getTopCandidates(
   projectId: string,
+  workspaceId: string,
   limit = 3,
 ): Promise<ProjectAnalysis[]> {
-  const details = await getProjectDetails(projectId);
+  const details = await getProjectDetails(projectId, workspaceId);
   if (!details) return [];
   return details.analyses.slice(0, limit);
 }
 
-export async function listCandidates(): Promise<CandidateRow[]> {
+export async function listCandidates(workspaceId: string): Promise<CandidateRow[]> {
   const db = getDb();
   if (!db) {
-    return [...getMemoryStore().candidates].sort(byNewest);
+    return getMemoryStore()
+      .candidates.filter((candidate) => candidate.workspaceId === workspaceId)
+      .sort(byNewest);
   }
-  return db.select().from(candidates).orderBy(desc(candidates.createdAt));
+  return db
+    .select()
+    .from(candidates)
+    .where(eq(candidates.workspaceId, workspaceId))
+    .orderBy(desc(candidates.createdAt));
 }
 
-export async function getCandidate(id: string): Promise<CandidateRow | null> {
+export async function getCandidate(
+  id: string,
+  workspaceId: string,
+): Promise<CandidateRow | null> {
   const db = getDb();
   if (!db) {
-    return getMemoryStore().candidates.find((candidate) => candidate.id === id) ?? null;
+    return (
+      getMemoryStore().candidates.find(
+        (candidate) => candidate.id === id && candidate.workspaceId === workspaceId,
+      ) ?? null
+    );
   }
-  const rows = await db.select().from(candidates).where(eq(candidates.id, id)).limit(1);
+  const rows = await db
+    .select()
+    .from(candidates)
+    .where(and(eq(candidates.id, id), eq(candidates.workspaceId, workspaceId)))
+    .limit(1);
   return rows[0] ?? null;
+}
+
+// Delete a candidate (and, via FK cascade, its analyses) within a workspace.
+export async function deleteCandidate(id: string, workspaceId: string): Promise<boolean> {
+  const db = getDb();
+  if (!db) {
+    const memory = getMemoryStore();
+    const candidate = memory.candidates.find(
+      (row) => row.id === id && row.workspaceId === workspaceId,
+    );
+    if (!candidate) return false;
+    memory.candidates = memory.candidates.filter((row) => row.id !== id);
+    memory.analyses = memory.analyses.filter((row) => row.candidateId !== id);
+    return true;
+  }
+  const rows = await db
+    .delete(candidates)
+    .where(and(eq(candidates.id, id), eq(candidates.workspaceId, workspaceId)))
+    .returning({ id: candidates.id });
+  return rows.length > 0;
 }
 
 // Create a candidate, or update the stored resume for an existing same-named one.
@@ -217,7 +289,9 @@ export async function upsertCandidate(input: UpsertCandidateInput): Promise<Cand
   const db = getDb();
   if (!db) {
     const memory = getMemoryStore();
-    const existing = memory.candidates.find((candidate) => candidate.name === input.name);
+    const existing = memory.candidates.find(
+      (candidate) => candidate.name === input.name && candidate.workspaceId === input.workspaceId,
+    );
     if (existing) {
       existing.resumeText = input.resumeText;
       existing.resumeEmbedding = input.resumeEmbedding ?? existing.resumeEmbedding;
@@ -227,6 +301,7 @@ export async function upsertCandidate(input: UpsertCandidateInput): Promise<Cand
     }
     const candidate: CandidateRow = {
       id: randomUUID(),
+      workspaceId: input.workspaceId,
       name: input.name,
       email: input.email ?? null,
       resumeText: input.resumeText,
@@ -241,7 +316,7 @@ export async function upsertCandidate(input: UpsertCandidateInput): Promise<Cand
   const existing = await db
     .select()
     .from(candidates)
-    .where(eq(candidates.name, input.name))
+    .where(and(eq(candidates.name, input.name), eq(candidates.workspaceId, input.workspaceId)))
     .limit(1);
 
   if (existing[0]) {
@@ -261,6 +336,7 @@ export async function upsertCandidate(input: UpsertCandidateInput): Promise<Cand
   const rows = await db
     .insert(candidates)
     .values({
+      workspaceId: input.workspaceId,
       name: input.name,
       email: input.email ?? null,
       resumeText: input.resumeText,
@@ -271,12 +347,23 @@ export async function upsertCandidate(input: UpsertCandidateInput): Promise<Cand
   return rows[0];
 }
 
-export async function listAnalyses(): Promise<AnalysisRow[]> {
+// Analyses have no workspace column; they inherit isolation from their project.
+export async function listAnalyses(workspaceId: string): Promise<AnalysisRow[]> {
   const db = getDb();
   if (!db) {
-    return [...getMemoryStore().analyses].sort(byNewest);
+    const memory = getMemoryStore();
+    const projectIds = new Set(
+      memory.projects.filter((p) => p.workspaceId === workspaceId).map((p) => p.id),
+    );
+    return memory.analyses.filter((a) => projectIds.has(a.projectId)).sort(byNewest);
   }
-  return db.select().from(analyses).orderBy(desc(analyses.createdAt));
+  const rows = await db
+    .select()
+    .from(analyses)
+    .innerJoin(projects, eq(analyses.projectId, projects.id))
+    .where(eq(projects.workspaceId, workspaceId))
+    .orderBy(desc(analyses.createdAt));
+  return rows.map((row) => row.analyses);
 }
 
 export async function listAnalysesByProject(projectId: string): Promise<AnalysisRow[]> {

@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { analyzeResume } from "@/lib/analysis-engine";
 import { getDemoAnalysisFor } from "@/lib/demo-analysis";
@@ -18,6 +19,12 @@ import { searchCandidates, type CandidateMatch } from "@/lib/search";
 import type { CandidateStatus } from "@/lib/constants";
 import type { AnalysisRow } from "@/lib/db/schema";
 import {
+  canWrite,
+  getWorkspaceContext,
+  ROLE_COOKIE,
+  WORKSPACE_COOKIE,
+} from "@/lib/workspace";
+import {
   generateBriefing,
   getDemoBriefing,
   type Briefing,
@@ -32,8 +39,10 @@ import {
 import {
   createAnalysis,
   createProject,
+  deleteCandidate,
   getAnalysis,
   getCandidate,
+  getProject,
   getProjectDetails,
   getTopCandidates,
   updateAnalysisBriefing,
@@ -44,14 +53,28 @@ import {
 
 const MIN_JD_LENGTH = 30;
 
-// Create a hiring project, then open it.
+// Uniform result shape for guarded, non-form mutating actions (Phase 14 RBAC).
+export interface ActionResult {
+  success: boolean;
+  error?: string;
+}
+
+const UNAUTHORIZED: ActionResult = {
+  success: false,
+  error: "Unauthorized: Insufficient permissions",
+};
+
+// Create a hiring project in the active workspace, then open it.
 export async function createProjectAction(formData: FormData): Promise<void> {
+  const { workspaceId, role } = await getWorkspaceContext();
+  if (!canWrite(role)) return;
+
   const title = String(formData.get("title") ?? "").trim();
   const description = String(formData.get("description") ?? "").trim();
   const requirements = String(formData.get("requirements") ?? "").trim();
   if (!title) return;
 
-  const project = await createProject({ title, description, requirements });
+  const project = await createProject({ workspaceId, title, description, requirements });
   revalidatePath("/projects");
   redirect(`/projects/${project.id}`);
 }
@@ -60,12 +83,18 @@ export async function createProjectAction(formData: FormData): Promise<void> {
 // candidate profile and the analysis. Uses deterministic demo output when demo
 // mode is on, the JD is too short, or live analysis hits a quota error.
 export async function analyzeCandidateAction(formData: FormData): Promise<void> {
+  const { workspaceId, role } = await getWorkspaceContext();
+  if (!canWrite(role)) return;
+
   const projectId = String(formData.get("projectId") ?? "");
-  const role = String(formData.get("role") ?? "").trim() || "Role";
+  const roleLabel = String(formData.get("role") ?? "").trim() || "Role";
   const jobDescription = String(formData.get("jobDescription") ?? "").trim();
   const file = formData.get("file");
 
   if (!projectId || !(file instanceof File) || file.size === 0) return;
+  // Isolation: the project must belong to the active workspace.
+  const project = await getProject(projectId, workspaceId);
+  if (!project) return;
 
   let rawText = "";
   try {
@@ -81,7 +110,7 @@ export async function analyzeCandidateAction(formData: FormData): Promise<void> 
   let resumeEmbedding: number[] | null = null;
 
   if (env.useDemoMode || jobDescription.length <= MIN_JD_LENGTH) {
-    analysis = getDemoAnalysisFor(file.name, role);
+    analysis = getDemoAnalysisFor(file.name, roleLabel);
   } else {
     try {
       const engine = await analyzeResume(resumeText, jobDescription);
@@ -90,7 +119,7 @@ export async function analyzeCandidateAction(formData: FormData): Promise<void> 
     } catch (error) {
       // Graceful degradation on quota exhaustion, consistent with the API route.
       if (!(error instanceof QuotaExceededError)) throw error;
-      analysis = getDemoAnalysisFor(file.name, role);
+      analysis = getDemoAnalysisFor(file.name, roleLabel);
     }
   }
 
@@ -108,6 +137,7 @@ export async function analyzeCandidateAction(formData: FormData): Promise<void> 
   }
 
   const candidate = await upsertCandidate({
+    workspaceId,
     name: file.name,
     resumeText,
     resumeEmbedding,
@@ -117,7 +147,7 @@ export async function analyzeCandidateAction(formData: FormData): Promise<void> 
   await createAnalysis({
     projectId,
     candidateId: candidate.id,
-    role,
+    role: roleLabel,
     similarityScore: analysis.similarityScore,
     llmScore: analysis.llmScore,
     finalScore: analysis.finalScore,
@@ -137,6 +167,9 @@ export async function updateAnalysisStatusAction(
   analysisId: string,
   status: CandidateStatus,
 ): Promise<AnalysisRow | null> {
+  const { role } = await getWorkspaceContext();
+  if (!canWrite(role)) return null;
+
   const analysis = await updateAnalysisStatus(analysisId, status);
   if (analysis) {
     revalidatePath(`/projects/${analysis.projectId}`);
@@ -150,6 +183,9 @@ export async function updateAnalysisNotesAction(
   analysisId: string,
   notes: string,
 ): Promise<AnalysisRow | null> {
+  const { role } = await getWorkspaceContext();
+  if (!canWrite(role)) return null;
+
   const analysis = await updateAnalysisNotes(analysisId, notes);
   if (analysis) {
     revalidatePath(`/projects/${analysis.projectId}`);
@@ -160,12 +196,16 @@ export async function updateAnalysisNotesAction(
 
 // Generate an AI recruiter briefing for one analysis and persist it. Uses the
 // deterministic briefing in demo mode or on quota exhaustion, mirroring
-// analyzeCandidateAction. Null when the analysis no longer exists.
+// analyzeCandidateAction. Null when unauthorized or out of workspace.
 export async function generateBriefingAction(analysisId: string): Promise<Briefing | null> {
-  const analysis = await getAnalysis(analysisId);
-  if (!analysis) return null;
+  const { workspaceId, role } = await getWorkspaceContext();
+  if (!canWrite(role)) return null;
 
-  const candidate = await getCandidate(analysis.candidateId);
+  const analysis = await getAnalysis(analysisId);
+  // Isolation: the analysis's project must belong to the active workspace.
+  if (!analysis || !(await getProject(analysis.projectId, workspaceId))) return null;
+
+  const candidate = await getCandidate(analysis.candidateId, workspaceId);
   const input: BriefingInput = {
     name: candidate?.name ?? "Candidate",
     role: analysis.role,
@@ -196,33 +236,62 @@ export async function generateBriefingAction(analysisId: string): Promise<Briefi
   return briefing;
 }
 
+// Delete a candidate from the active workspace (Owner/Recruiter only).
+export async function deleteCandidateAction(candidateId: string): Promise<ActionResult> {
+  const { workspaceId, role } = await getWorkspaceContext();
+  if (!canWrite(role)) return UNAUTHORIZED;
+
+  const deleted = await deleteCandidate(candidateId, workspaceId);
+  if (!deleted) return { success: false, error: "Candidate not found" };
+
+  revalidatePath("/candidates");
+  revalidatePath("/insights");
+  return { success: true };
+}
+
 // Build a full Markdown report for a project, ready to download. Null when the
-// project no longer exists.
+// project is missing from the active workspace.
 export async function exportProjectMarkdown(projectId: string): Promise<ExportFile | null> {
-  const details = await getProjectDetails(projectId);
+  const { workspaceId } = await getWorkspaceContext();
+  const details = await getProjectDetails(projectId, workspaceId);
   return details ? buildProjectMarkdown(details) : null;
 }
 
 // Build an ATS-ready JSON export for a project.
 export async function exportProjectJSON(projectId: string): Promise<ExportFile | null> {
-  const details = await getProjectDetails(projectId);
+  const { workspaceId } = await getWorkspaceContext();
+  const details = await getProjectDetails(projectId, workspaceId);
   return details ? buildProjectJSON(details) : null;
 }
 
 // Build a short, HR-friendly plain-text summary of a project's top 3 candidates.
 export async function exportProjectTextSummary(projectId: string): Promise<ExportFile | null> {
+  const { workspaceId } = await getWorkspaceContext();
   const [details, top] = await Promise.all([
-    getProjectDetails(projectId),
-    getTopCandidates(projectId, 3),
+    getProjectDetails(projectId, workspaceId),
+    getTopCandidates(projectId, workspaceId, 3),
   ]);
   return details ? buildProjectSummary(details, top) : null;
 }
 
 // Rank stored candidates against a free-text query for the candidates search
-// bar. When `projectId` is given, ranking is scoped to that project.
+// bar, scoped to the active workspace and optionally a project.
 export async function searchCandidatesAction(
   query: string,
   projectId?: string,
 ): Promise<CandidateMatch[]> {
-  return searchCandidates(query, projectId);
+  const { workspaceId } = await getWorkspaceContext();
+  return searchCandidates(query, workspaceId, projectId);
+}
+
+// Switch the active workspace (mock tenancy); refresh all views.
+export async function setWorkspaceAction(workspaceId: string): Promise<void> {
+  (await cookies()).set(WORKSPACE_COOKIE, workspaceId, { path: "/" });
+  revalidatePath("/", "layout");
+}
+
+// Switch the active role (mock RBAC); refresh all views.
+export async function setRoleAction(role: string): Promise<void> {
+  (await cookies()).set(ROLE_COOKIE, role, { path: "/" });
+  revalidatePath("/", "layout");
 }

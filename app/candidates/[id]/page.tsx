@@ -1,10 +1,12 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { BriefingPanel } from "@/components/briefing-panel";
+import { DeleteCandidateButton } from "@/components/delete-candidate-button";
 import { ScoreRing } from "@/components/score-ring";
 import { getCandidateProjectHistory } from "@/lib/candidate-insights";
 import { getCandidate } from "@/lib/db/repository";
 import { matchQualityLabel, scoreColorClass, statusColorClass } from "@/lib/multi";
+import { canWrite, getWorkspaceContext } from "@/lib/workspace";
 
 export const dynamic = "force-dynamic";
 
@@ -20,21 +22,26 @@ export default async function CandidatePage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const candidate = await getCandidate(id);
+  const { workspaceId, role } = await getWorkspaceContext();
+  const candidate = await getCandidate(id, workspaceId);
   if (!candidate) notFound();
 
-  const history = await getCandidateProjectHistory(id);
+  const writable = canWrite(role);
+  const history = await getCandidateProjectHistory(id, workspaceId);
   const summary = candidate.resumeText.trim().slice(0, 600);
 
   return (
     <main className="mx-auto w-full max-w-3xl px-6 py-10">
       <div className="flex flex-col gap-8">
-        <header className="flex flex-col gap-1">
-          <Link href="/candidates" className="text-xs text-zinc-500 hover:text-zinc-300">
-            ← Candidates
-          </Link>
-          <h1 className="text-2xl font-semibold tracking-tight text-zinc-50">{candidate.name}</h1>
-          {candidate.email && <p className="text-sm text-zinc-400">{candidate.email}</p>}
+        <header className="flex items-start justify-between gap-4">
+          <div className="flex flex-col gap-1">
+            <Link href="/candidates" className="text-xs text-zinc-500 hover:text-zinc-300">
+              ← Candidates
+            </Link>
+            <h1 className="text-2xl font-semibold tracking-tight text-zinc-50">{candidate.name}</h1>
+            {candidate.email && <p className="text-sm text-zinc-400">{candidate.email}</p>}
+          </div>
+          {writable && <DeleteCandidateButton candidateId={candidate.id} />}
         </header>
 
         <section className="flex flex-col gap-3 rounded-2xl border border-zinc-800 bg-zinc-900/40 p-5">
@@ -124,7 +131,11 @@ export default async function CandidatePage({
                     </div>
                     <ScoreRing score={fit.finalScore} size={56} stroke={6} />
                   </div>
-                  <BriefingPanel analysisId={fit.analysisId} briefing={fit.briefing} />
+                  <BriefingPanel
+                    analysisId={fit.analysisId}
+                    briefing={fit.briefing}
+                    canWrite={writable}
+                  />
                 </li>
               ))}
             </ul>

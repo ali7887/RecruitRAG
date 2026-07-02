@@ -13,6 +13,7 @@ import {
 import type { Briefing } from "@/lib/briefing";
 import { DEFAULT_CANDIDATE_STATUS, type CandidateStatus } from "@/lib/constants";
 import type { Evidence, RubricScores } from "@/lib/evaluation-rubric";
+import type { ParsedResume } from "@/lib/resume-parser";
 
 export interface NewProjectInput {
   title: string;
@@ -55,6 +56,8 @@ export interface UpsertCandidateInput {
   email?: string | null;
   resumeText: string;
   resumeEmbedding?: number[] | null;
+  // Lightweight structured profile from the parser (Phase 12).
+  parsed?: ParsedResume | null;
 }
 
 export interface NewAnalysisInput {
@@ -204,6 +207,13 @@ export async function getCandidate(id: string): Promise<CandidateRow | null> {
 
 // Create a candidate, or update the stored resume for an existing same-named one.
 export async function upsertCandidate(input: UpsertCandidateInput): Promise<CandidateRow> {
+  const parsedFields = {
+    parsedHeadline: input.parsed?.headline ?? null,
+    parsedSkills: input.parsed?.skills ?? null,
+    parsedExperienceYears: input.parsed?.experienceYears ?? null,
+    parsedWorkSummary: input.parsed?.workSummary ?? null,
+  };
+
   const db = getDb();
   if (!db) {
     const memory = getMemoryStore();
@@ -212,6 +222,7 @@ export async function upsertCandidate(input: UpsertCandidateInput): Promise<Cand
       existing.resumeText = input.resumeText;
       existing.resumeEmbedding = input.resumeEmbedding ?? existing.resumeEmbedding;
       if (input.email !== undefined) existing.email = input.email ?? null;
+      if (input.parsed) Object.assign(existing, parsedFields);
       return existing;
     }
     const candidate: CandidateRow = {
@@ -220,6 +231,7 @@ export async function upsertCandidate(input: UpsertCandidateInput): Promise<Cand
       email: input.email ?? null,
       resumeText: input.resumeText,
       resumeEmbedding: input.resumeEmbedding ?? null,
+      ...parsedFields,
       createdAt: new Date(),
     };
     memory.candidates.unshift(candidate);
@@ -239,6 +251,7 @@ export async function upsertCandidate(input: UpsertCandidateInput): Promise<Cand
         resumeText: input.resumeText,
         resumeEmbedding: input.resumeEmbedding ?? existing[0].resumeEmbedding,
         email: input.email ?? existing[0].email,
+        ...(input.parsed ? parsedFields : {}),
       })
       .where(eq(candidates.id, existing[0].id))
       .returning();
@@ -252,6 +265,7 @@ export async function upsertCandidate(input: UpsertCandidateInput): Promise<Cand
       email: input.email ?? null,
       resumeText: input.resumeText,
       resumeEmbedding: input.resumeEmbedding ?? null,
+      ...parsedFields,
     })
     .returning();
   return rows[0];

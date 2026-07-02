@@ -4,6 +4,7 @@ import { CANDIDATE_STATUSES } from "@/lib/constants";
 import type { AnalysisRow, CandidateRow, ProjectRow } from "@/lib/db/schema";
 import { getDemoAnalysisFor } from "@/lib/demo-analysis";
 import { SAMPLE_JOB_DESCRIPTIONS, SAMPLE_RESUMES } from "@/lib/demo-content";
+import { getDemoParsedResume } from "@/lib/resume-parser";
 
 // One sample recruiter note per seeded candidate, so the notes UI looks alive.
 const SEED_NOTES = [
@@ -70,12 +71,17 @@ function seed(target: MemoryStore) {
   SAMPLE_RESUMES.forEach((resume, index) => {
     const id = randomUUID();
     candidateIdBySample.set(resume.id, id);
+    const parsed = getDemoParsedResume(resume.text);
     target.candidates.push({
       id,
       name: resume.name,
       email: null,
       resumeText: resume.text,
       resumeEmbedding: null,
+      parsedHeadline: parsed.headline,
+      parsedSkills: parsed.skills,
+      parsedExperienceYears: parsed.experienceYears,
+      parsedWorkSummary: parsed.workSummary,
       createdAt: new Date(now - index * 1000),
     });
   });

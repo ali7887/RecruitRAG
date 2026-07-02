@@ -97,17 +97,17 @@ export const SAMPLE_RESUMES: SampleResume[] = [
   {
     id: "amir",
     name: "Amir_Frontend.pdf",
-    text: "Frontend engineer, 5 years React/TypeScript/Next.js, design systems, accessibility, Vercel.",
+    text: "Senior Frontend Engineer with 5 years building production React, TypeScript, and Next.js apps. Led design systems and Accessibility work, shipped Tailwind CSS UIs, and owned Vercel deployments.",
   },
   {
     id: "sara",
     name: "Sara_Fullstack.pdf",
-    text: "Full-stack engineer, Node.js/PostgreSQL, REST APIs, React, testing, CI, cloud deployment.",
+    text: "Full-Stack Engineer with 6 years across Node.js, PostgreSQL, and REST APIs. Built React frontends, added Testing and CI/CD, and ran cloud deployments on AWS.",
   },
   {
     id: "leo",
     name: "Leo_AI_Engineer.pdf",
-    text: "AI engineer, RAG pipelines, embeddings, vector search, OpenAI/Anthropic, TypeScript/Python.",
+    text: "AI Engineer with 4 years building RAG pipelines: Embeddings, Vector search, and OpenAI / Anthropic APIs. Strong TypeScript and Python, with a focus on evaluation and latency.",
   },
 ];
 

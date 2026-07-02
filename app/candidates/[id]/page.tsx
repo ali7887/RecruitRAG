@@ -37,13 +37,41 @@ export default async function CandidatePage({
           {candidate.email && <p className="text-sm text-zinc-400">{candidate.email}</p>}
         </header>
 
-        <section className="flex flex-col gap-2 rounded-2xl border border-zinc-800 bg-zinc-900/40 p-5">
-          <h2 className="text-sm font-medium uppercase tracking-widest text-zinc-500">
-            Resume summary
-          </h2>
-          <p className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-400">
-            {summary ? `${summary}${candidate.resumeText.length > 600 ? "…" : ""}` : "No resume text stored."}
-          </p>
+        <section className="flex flex-col gap-3 rounded-2xl border border-zinc-800 bg-zinc-900/40 p-5">
+          <h2 className="text-sm font-medium uppercase tracking-widest text-zinc-500">Profile</h2>
+          {candidate.parsedHeadline || (candidate.parsedSkills?.length ?? 0) > 0 ? (
+            <>
+              {candidate.parsedHeadline && (
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="text-sm font-medium text-zinc-200">{candidate.parsedHeadline}</p>
+                  {typeof candidate.parsedExperienceYears === "number" && (
+                    <span className="rounded-full border border-cyan-500/30 bg-cyan-500/10 px-2 py-0.5 text-xs text-cyan-300">
+                      {candidate.parsedExperienceYears} yrs experience
+                    </span>
+                  )}
+                </div>
+              )}
+              {candidate.parsedSkills && candidate.parsedSkills.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {candidate.parsedSkills.map((skill) => (
+                    <span
+                      key={skill}
+                      className="rounded-full border border-zinc-800 px-2.5 py-0.5 text-xs text-zinc-400"
+                    >
+                      {skill}
+                    </span>
+                  ))}
+                </div>
+              )}
+              <p className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-400">
+                {candidate.parsedWorkSummary ?? summary}
+              </p>
+            </>
+          ) : (
+            <p className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-400">
+              {summary ? `${summary}${candidate.resumeText.length > 600 ? "…" : ""}` : "No resume text stored."}
+            </p>
+          )}
         </section>
 
         <section className="flex flex-col gap-3">

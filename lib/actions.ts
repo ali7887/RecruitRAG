@@ -8,6 +8,12 @@ import { QuotaExceededError } from "@/lib/embeddings";
 import { env } from "@/lib/env";
 import type { EvaluatedAnalysis } from "@/lib/evaluation-rubric";
 import { extractTextFromPdf } from "@/lib/parser";
+import {
+  getDemoParsedResume,
+  normalizeResumeText,
+  parseResume,
+  type ParsedResume,
+} from "@/lib/resume-parser";
 import { searchCandidates, type CandidateMatch } from "@/lib/search";
 import type { CandidateStatus } from "@/lib/constants";
 import type { AnalysisRow } from "@/lib/db/schema";
@@ -61,12 +67,15 @@ export async function analyzeCandidateAction(formData: FormData): Promise<void> 
 
   if (!projectId || !(file instanceof File) || file.size === 0) return;
 
-  let resumeText = "";
+  let rawText = "";
   try {
-    resumeText = await extractTextFromPdf(Buffer.from(await file.arrayBuffer()));
+    rawText = await extractTextFromPdf(Buffer.from(await file.arrayBuffer()));
   } catch {
-    resumeText = "";
+    rawText = "";
   }
+
+  // Normalized text replaces the raw PDF text everywhere downstream.
+  const resumeText = normalizeResumeText(rawText) || file.name;
 
   let analysis: EvaluatedAnalysis;
   let resumeEmbedding: number[] | null = null;
@@ -75,7 +84,7 @@ export async function analyzeCandidateAction(formData: FormData): Promise<void> 
     analysis = getDemoAnalysisFor(file.name, role);
   } else {
     try {
-      const engine = await analyzeResume(resumeText || file.name, jobDescription);
+      const engine = await analyzeResume(resumeText, jobDescription);
       analysis = engine.analysis;
       resumeEmbedding = engine.resumeEmbedding;
     } catch (error) {
@@ -85,10 +94,24 @@ export async function analyzeCandidateAction(formData: FormData): Promise<void> 
     }
   }
 
+  // The one structured-parse LLM call, with the same demo/quota fallback.
+  let parsed: ParsedResume;
+  if (env.useDemoMode) {
+    parsed = getDemoParsedResume(resumeText);
+  } else {
+    try {
+      parsed = await parseResume(resumeText);
+    } catch (error) {
+      if (!(error instanceof QuotaExceededError)) throw error;
+      parsed = getDemoParsedResume(resumeText);
+    }
+  }
+
   const candidate = await upsertCandidate({
     name: file.name,
     resumeText,
     resumeEmbedding,
+    parsed,
   });
 
   await createAnalysis({

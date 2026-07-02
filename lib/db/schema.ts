@@ -18,6 +18,12 @@ export const candidates = pgTable("candidates", {
   email: text("email"),
   resumeText: text("resume_text").notNull().default(""),
   resumeEmbedding: jsonb("resume_embedding").$type<number[]>(),
+  // Lightweight structured profile extracted during ingestion (Phase 12).
+  // Nullable: absent until a resume is parsed.
+  parsedHeadline: text("parsed_headline"),
+  parsedSkills: jsonb("parsed_skills").$type<string[]>(),
+  parsedExperienceYears: integer("parsed_experience_years"),
+  parsedWorkSummary: text("parsed_work_summary"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

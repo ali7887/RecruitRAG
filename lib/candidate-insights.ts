@@ -1,5 +1,5 @@
 import type { Briefing } from "@/lib/briefing";
-import type { CandidateStatus } from "@/lib/constants";
+import type { CandidateStatus, ReviewStatus } from "@/lib/constants";
 import { listAnalysesByCandidate, listProjects } from "@/lib/db/repository";
 import type { AnalysisRow } from "@/lib/db/schema";
 
@@ -15,6 +15,11 @@ export interface CandidateProjectFit {
   status: CandidateStatus;
   hiringRecommendation: string | null;
   briefing: Briefing | null;
+  reviewStatus: ReviewStatus;
+  adjustedFinalScore: number | null;
+  reviewerNotes: string | null;
+  automationDecision: string | null;
+  notes: string;
   createdAt: Date;
 }
 
@@ -53,6 +58,11 @@ export async function getCandidateProjectHistory(
       status: row.status as CandidateStatus,
       hiringRecommendation: row.hiringRecommendation,
       briefing: briefingFromRow(row),
+      reviewStatus: row.reviewStatus as ReviewStatus,
+      adjustedFinalScore: row.adjustedFinalScore,
+      reviewerNotes: row.reviewerNotes,
+      automationDecision: row.automationDecision,
+      notes: row.notes,
       createdAt: row.createdAt,
     }))
     .sort((a, b) => b.finalScore - a.finalScore);

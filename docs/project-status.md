@@ -378,3 +378,36 @@ Focus on:
 - Demo mode is explicit only — it bypasses OpenAI/Anthropic and returns a static
   typed `AnalysisResult` (`lib/demo-analysis.ts`). The app never falls back to
   demo results silently after a quota error.
+
+---
+
+# 15) Post-MVP Phases (7–17)
+
+The MVP was extended into a workspace-based SaaS. Summary of added capabilities:
+
+- **7 — Projects**: `projects`/`analyses` tables; project dashboard + detail
+  views; scoped candidate boards.
+- **8 — Pipeline**: `analyses.status` + `notes`; inline status/notes controls.
+- **9 — Exports**: deterministic Markdown / JSON / summary downloads
+  (`lib/export.ts`).
+- **10 — AI briefings**: `aiSummary` / `technicalSummary` / `hiringRecommendation`
+  / `interviewFocus`; one low-token Claude call with heuristic fallback
+  (`lib/briefing.ts`).
+- **11 — Cross-project intelligence**: candidate history, best-fit
+  (`lib/candidate-insights.ts`) and portfolio analytics
+  (`lib/portfolio-analytics.ts`) on `/insights`.
+- **12 — Resume parsing 2.0**: normalized text + structured `parsed_*` profile
+  (`lib/resume-parser.ts`).
+- **13 — RAG enhancement**: query expansion, similarity calibration, semantic
+  chunk selection, embedding cache (`lib/rag-optimizer.ts`).
+- **14 — Multi-tenancy + RBAC**: `workspaces` table, `workspace_id` isolation on
+  every query, cookie-based workspace/role context (`lib/workspace.ts`).
+- **15 — Migrations + resilience**: staged Postgres migration + `docs/migration-guide.md`;
+  graceful ingestion fallbacks with a UI flag; route-level `error.tsx` boundaries.
+- **16 — Audit logs**: immutable, workspace-scoped `audit_logs` with a read-only
+  activity feed on `/insights`.
+- **17 — Production hardening**: FIFO-bounded embedding cache, `validateEnv()`
+  boot check (`instrumentation.ts`), log cleanup.
+
+Live Postgres requires the migrations in `drizzle/`; demo (in-memory) mode runs
+with no setup. See `docs/migration-guide.md`.

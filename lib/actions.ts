@@ -16,8 +16,10 @@ import {
   type ParsedResume,
 } from "@/lib/resume-parser";
 import { searchCandidates, type CandidateMatch } from "@/lib/search";
-import type { CandidateStatus } from "@/lib/constants";
+import type { CandidateStatus, ReviewStatus } from "@/lib/constants";
 import type { AnalysisRow } from "@/lib/db/schema";
+import { evaluateAutomation } from "@/lib/automation";
+import { recordFeedbackPattern } from "@/lib/feedback-registry";
 import {
   canWrite,
   getWorkspaceContext,
@@ -37,6 +39,9 @@ import {
   type ExportFile,
 } from "@/lib/export";
 import {
+  appendAuditLog,
+  assignReviewer,
+  clearAnalysisAutomation,
   createAnalysis,
   createProject,
   deleteCandidate,
@@ -47,6 +52,7 @@ import {
   getTopCandidates,
   updateAnalysisBriefing,
   updateAnalysisNotes,
+  updateAnalysisReview,
   updateAnalysisStatus,
   upsertCandidate,
 } from "@/lib/db/repository";
@@ -75,7 +81,15 @@ export async function createProjectAction(formData: FormData): Promise<void> {
   if (!title) return;
 
   const project = await createProject({ workspaceId, title, description, requirements });
+  await appendAuditLog({
+    workspaceId,
+    actorRole: role,
+    action: "PROJECT_CREATE",
+    targetId: project.id,
+    targetName: project.title,
+  });
   revalidatePath("/projects");
+  revalidatePath("/insights");
   redirect(`/projects/${project.id}`);
 }
 
@@ -117,22 +131,26 @@ export async function analyzeCandidateAction(formData: FormData): Promise<void> 
       analysis = engine.analysis;
       resumeEmbedding = engine.resumeEmbedding;
     } catch (error) {
-      // Graceful degradation on quota exhaustion, consistent with the API route.
-      if (!(error instanceof QuotaExceededError)) throw error;
+      // Ingestion resilience (Phase 15): degrade gracefully on any live-analysis
+      // failure — quota, rate limit, timeout, or network — never crash the action.
+      console.error("Live analysis failed; falling back to demo analysis", error);
       analysis = getDemoAnalysisFor(file.name, roleLabel);
     }
   }
 
-  // The one structured-parse LLM call, with the same demo/quota fallback.
+  // The one structured-parse LLM call. Any failure (rate limit, timeout, bad
+  // JSON) instantly falls back to the local heuristic parser and flags it.
   let parsed: ParsedResume;
+  let parsedViaFallback = false;
   if (env.useDemoMode) {
     parsed = getDemoParsedResume(resumeText);
   } else {
     try {
       parsed = await parseResume(resumeText);
     } catch (error) {
-      if (!(error instanceof QuotaExceededError)) throw error;
+      console.error("Resume parse failed; using heuristic fallback", error);
       parsed = getDemoParsedResume(resumeText);
+      parsedViaFallback = true;
     }
   }
 
@@ -142,6 +160,14 @@ export async function analyzeCandidateAction(formData: FormData): Promise<void> 
     resumeText,
     resumeEmbedding,
     parsed,
+    parsedViaFallback,
+  });
+
+  // Smart ATS automation (Phase 20): derive a shortlist/reject/flag decision.
+  const automation = evaluateAutomation({
+    finalScore: analysis.finalScore,
+    rubricScores: analysis.rubricScores ?? null,
+    evidence: analysis.evidence ?? null,
   });
 
   await createAnalysis({
@@ -156,10 +182,21 @@ export async function analyzeCandidateAction(formData: FormData): Promise<void> 
     strengths: analysis.strengths,
     gaps: analysis.gaps,
     interviewQuestions: analysis.interviewQuestions,
+    status: automation.status ?? undefined,
+    automationDecision: automation.decision,
+  });
+
+  await appendAuditLog({
+    workspaceId,
+    actorRole: role,
+    action: "ANALYSIS_RUN",
+    targetId: candidate.id,
+    targetName: candidate.name,
   });
 
   revalidatePath(`/projects/${projectId}`);
   revalidatePath("/candidates");
+  revalidatePath("/insights");
 }
 
 // Move a candidate to a new pipeline stage, then refresh the affected views.
@@ -167,13 +204,22 @@ export async function updateAnalysisStatusAction(
   analysisId: string,
   status: CandidateStatus,
 ): Promise<AnalysisRow | null> {
-  const { role } = await getWorkspaceContext();
+  const { workspaceId, role } = await getWorkspaceContext();
   if (!canWrite(role)) return null;
 
   const analysis = await updateAnalysisStatus(analysisId, status);
   if (analysis) {
+    const candidate = await getCandidate(analysis.candidateId, workspaceId);
+    await appendAuditLog({
+      workspaceId,
+      actorRole: role,
+      action: "STATUS_CHANGE",
+      targetId: analysis.candidateId,
+      targetName: candidate?.name ?? "Candidate",
+    });
     revalidatePath(`/projects/${analysis.projectId}`);
     revalidatePath(`/candidates/${analysis.candidateId}`);
+    revalidatePath("/insights");
   }
   return analysis;
 }
@@ -183,13 +229,22 @@ export async function updateAnalysisNotesAction(
   analysisId: string,
   notes: string,
 ): Promise<AnalysisRow | null> {
-  const { role } = await getWorkspaceContext();
+  const { workspaceId, role } = await getWorkspaceContext();
   if (!canWrite(role)) return null;
 
   const analysis = await updateAnalysisNotes(analysisId, notes);
   if (analysis) {
+    const candidate = await getCandidate(analysis.candidateId, workspaceId);
+    await appendAuditLog({
+      workspaceId,
+      actorRole: role,
+      action: "NOTE_UPDATE",
+      targetId: analysis.candidateId,
+      targetName: candidate?.name ?? "Candidate",
+    });
     revalidatePath(`/projects/${analysis.projectId}`);
     revalidatePath(`/candidates/${analysis.candidateId}`);
+    revalidatePath("/insights");
   }
   return analysis;
 }
@@ -241,12 +296,109 @@ export async function deleteCandidateAction(candidateId: string): Promise<Action
   const { workspaceId, role } = await getWorkspaceContext();
   if (!canWrite(role)) return UNAUTHORIZED;
 
+  // Capture the name before the row is purged, for the audit record.
+  const candidate = await getCandidate(candidateId, workspaceId);
   const deleted = await deleteCandidate(candidateId, workspaceId);
   if (!deleted) return { success: false, error: "Candidate not found" };
 
+  await appendAuditLog({
+    workspaceId,
+    actorRole: role,
+    action: "CANDIDATE_DELETE",
+    targetId: candidateId,
+    targetName: candidate?.name ?? "Candidate",
+  });
   revalidatePath("/candidates");
   revalidatePath("/insights");
   return { success: true };
+}
+
+// Human-in-the-loop score review (Phase 18): approve / adjust / reject. An
+// adjusted score overrides the AI score in the UI. Owner/Recruiter only.
+export async function reviewAnalysisAction(
+  analysisId: string,
+  reviewStatus: ReviewStatus,
+  adjustedFinalScore?: number | null,
+  reviewerNotes?: string | null,
+): Promise<AnalysisRow | null> {
+  const { workspaceId, role } = await getWorkspaceContext();
+  if (!canWrite(role)) return null;
+
+  const existing = await getAnalysis(analysisId);
+  if (!existing || !(await getProject(existing.projectId, workspaceId))) return null;
+
+  const clampedScore =
+    reviewStatus === "adjusted" && typeof adjustedFinalScore === "number"
+      ? Math.max(0, Math.min(100, Math.round(adjustedFinalScore)))
+      : null;
+
+  const analysis = await updateAnalysisReview(analysisId, {
+    reviewStatus,
+    adjustedFinalScore: clampedScore,
+    reviewerNotes: reviewerNotes ?? null,
+  });
+  if (!analysis) return null;
+
+  // Feed validated reasoning back into future analysis prompts.
+  if (reviewStatus === "approved" || reviewStatus === "adjusted") {
+    const lead = analysis.strengths[0] ?? "relevant experience";
+    recordFeedbackPattern(`[${analysis.role}] ${reviewStatus}: ${lead}`);
+  }
+
+  const candidate = await getCandidate(analysis.candidateId, workspaceId);
+  await appendAuditLog({
+    workspaceId,
+    actorRole: role,
+    action: "SCORE_REVIEW",
+    targetId: analysis.candidateId,
+    targetName: candidate?.name ?? "Candidate",
+  });
+  revalidatePath(`/candidates/${analysis.candidateId}`);
+  revalidatePath(`/projects/${analysis.projectId}`);
+  revalidatePath("/insights");
+  return analysis;
+}
+
+// Assign a reviewer (Owner/Recruiter) to a candidate (Phase 19). Viewer cannot
+// be assigned; passing null clears the assignment.
+export async function assignReviewerAction(
+  candidateId: string,
+  reviewerId: string | null,
+): Promise<ActionResult> {
+  const { workspaceId, role } = await getWorkspaceContext();
+  if (!canWrite(role)) return UNAUTHORIZED;
+
+  const assignee = reviewerId === "Owner" || reviewerId === "Recruiter" ? reviewerId : null;
+  const candidate = await assignReviewer(candidateId, workspaceId, assignee);
+  if (!candidate) return { success: false, error: "Candidate not found" };
+
+  await appendAuditLog({
+    workspaceId,
+    actorRole: role,
+    action: "REVIEWER_ASSIGN",
+    targetId: candidateId,
+    targetName: candidate.name,
+  });
+  revalidatePath(`/candidates/${candidateId}`);
+  revalidatePath("/candidates");
+  return { success: true };
+}
+
+// Recruiter override of an automated decision (Phase 20): clear the flag/label.
+export async function clearAutomationAction(analysisId: string): Promise<AnalysisRow | null> {
+  const { workspaceId, role } = await getWorkspaceContext();
+  if (!canWrite(role)) return null;
+
+  const existing = await getAnalysis(analysisId);
+  if (!existing || !(await getProject(existing.projectId, workspaceId))) return null;
+
+  const analysis = await clearAnalysisAutomation(analysisId);
+  if (analysis) {
+    revalidatePath(`/projects/${analysis.projectId}`);
+    revalidatePath(`/candidates/${analysis.candidateId}`);
+    revalidatePath("/insights");
+  }
+  return analysis;
 }
 
 // Build a full Markdown report for a project, ready to download. Null when the

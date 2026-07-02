@@ -5,6 +5,7 @@ import { semanticChunks } from "@/lib/chunker";
 import { ANALYSIS_MODEL, MAX_CONTEXT_CHUNKS, SEMANTIC_MIN_SIMILARITY } from "@/lib/constants";
 import { embedChunks, embedTextCached } from "@/lib/embeddings";
 import { env } from "@/lib/env";
+import { formatFeedbackPatterns } from "@/lib/feedback-registry";
 import {
   type Evidence,
   type EvaluatedAnalysis,
@@ -134,7 +135,8 @@ async function buildPrompt(chunks: RankedChunk[], jobDescription: string): Promi
 
   return template
     .replace("{{retrieved_chunks}}", context)
-    .replace("{{job_description}}", jobDescription);
+    .replace("{{job_description}}", jobDescription)
+    .replace("{{feedbackPatterns}}", formatFeedbackPatterns());
 }
 
 function parseAnalysis(text: string): LlmAnalysis {

@@ -42,6 +42,24 @@ export interface SkillTrend {
   value: number; // 0–1, two-decimal precision
 }
 
+export interface ScoreVarianceItem {
+  name: string;
+  aiScore: number;
+  humanScore: number;
+  diff: number; // human − AI
+}
+
+export interface ScoreVariance {
+  items: ScoreVarianceItem[];
+  approvedPct: number; // % of reviewed analyses approved without adjustment
+  reviewedCount: number;
+}
+
+export interface AutomationSummary {
+  shortlisted: Array<{ name: string; projectTitle: string; score: number }>;
+  flagged: Array<{ name: string; projectTitle: string; decision: string }>;
+}
+
 const RUBRIC_LABELS: Record<keyof RubricScores, string> = {
   coreSkills: "Core Skills",
   experience: "Experience",
@@ -182,6 +200,65 @@ export async function getSkillTrends(workspaceId: string): Promise<SkillTrend[]>
     label: RUBRIC_LABELS[key],
     value: rubrics.length ? round(mean(rubrics.map((r) => r[key])) / 100, 2) : 0,
   }));
+}
+
+// AI vs human score variance (Phase 18). Lists adjusted analyses with their
+// AI→human delta, plus the share of reviewed analyses approved as-is.
+export async function getScoreVariance(workspaceId: string): Promise<ScoreVariance> {
+  const [analyses, candidates] = await Promise.all([
+    listAnalyses(workspaceId),
+    listCandidates(workspaceId),
+  ]);
+  const nameById = new Map(candidates.map((c) => [c.id, c.name]));
+
+  const reviewed = analyses.filter((a) => a.reviewStatus !== "pending");
+  const items = analyses
+    .filter((a) => a.reviewStatus === "adjusted" && a.adjustedFinalScore != null)
+    .map((a) => {
+      const humanScore = a.adjustedFinalScore as number;
+      return {
+        name: nameById.get(a.candidateId) ?? "Unknown",
+        aiScore: a.finalScore,
+        humanScore,
+        diff: humanScore - a.finalScore,
+      };
+    })
+    .filter((item) => item.diff !== 0)
+    .sort((a, b) => Math.abs(b.diff) - Math.abs(a.diff));
+
+  const approved = reviewed.filter((a) => a.reviewStatus === "approved").length;
+  const approvedPct = reviewed.length ? Math.round((approved / reviewed.length) * 100) : 0;
+  return { items, approvedPct, reviewedCount: reviewed.length };
+}
+
+// Automation recommendations (Phase 20): shortlisted and flagged candidates.
+export async function getAutomationSummary(workspaceId: string): Promise<AutomationSummary> {
+  const [analyses, candidates, projects] = await Promise.all([
+    listAnalyses(workspaceId),
+    listCandidates(workspaceId),
+    listProjects(workspaceId),
+  ]);
+  const nameById = new Map(candidates.map((c) => [c.id, c.name]));
+  const titleById = new Map(projects.map((p) => [p.id, p.title]));
+
+  const shortlisted = analyses
+    .filter((a) => a.automationDecision?.toLowerCase().includes("shortlist"))
+    .map((a) => ({
+      name: nameById.get(a.candidateId) ?? "Unknown",
+      projectTitle: titleById.get(a.projectId) ?? "Unknown project",
+      score: a.finalScore,
+    }))
+    .sort((a, b) => b.score - a.score);
+
+  const flagged = analyses
+    .filter((a) => a.automationDecision?.toLowerCase().includes("flag"))
+    .map((a) => ({
+      name: nameById.get(a.candidateId) ?? "Unknown",
+      projectTitle: titleById.get(a.projectId) ?? "Unknown project",
+      decision: a.automationDecision ?? "Flagged",
+    }));
+
+  return { shortlisted, flagged };
 }
 
 function groupByCandidate(analyses: AnalysisRow[]): Map<string, AnalysisRow[]> {

@@ -1,4 +1,4 @@
-import { integer, jsonb, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { boolean, integer, jsonb, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
 import type { Evidence, RubricScores } from "@/lib/evaluation-rubric";
 
 // Tenant boundary (Phase 14). Projects and candidates belong to one workspace.
@@ -37,6 +37,13 @@ export const candidates = pgTable("candidates", {
   parsedSkills: jsonb("parsed_skills").$type<string[]>(),
   parsedExperienceYears: integer("parsed_experience_years"),
   parsedWorkSummary: text("parsed_work_summary"),
+  // True when the structured profile came from the heuristic fallback because
+  // the LLM parse failed (Phase 15 ingestion resilience).
+  parsedViaFallback: boolean("parsed_via_fallback"),
+  // Team collaboration (Phase 19): the role/user assigned to review this
+  // candidate, and when. Nullable until assigned.
+  assignedReviewerId: text("assigned_reviewer_id"),
+  assignedAt: timestamp("assigned_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -68,10 +75,31 @@ export const analyses = pgTable("analyses", {
   technicalSummary: text("technical_summary"),
   hiringRecommendation: text("hiring_recommendation"),
   interviewFocus: jsonb("interview_focus").$type<string[]>(),
+  // Human-in-the-loop scoring review (Phase 18).
+  // reviewStatus: "pending" | "approved" | "adjusted" | "rejected".
+  reviewStatus: text("review_status").notNull().default("pending"),
+  reviewerNotes: text("reviewer_notes"),
+  adjustedFinalScore: integer("adjusted_final_score"),
+  // Automated ATS decision (Phase 20), e.g. "Auto-shortlisted". Null = none.
+  automationDecision: text("automation_decision"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Immutable, workspace-scoped audit trail for compliance (Phase 16, GDPR).
+export const auditLogs = pgTable("audit_logs", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id")
+    .notNull()
+    .references(() => workspaces.id, { onDelete: "cascade" }),
+  actorRole: text("actor_role").notNull(),
+  action: text("action").notNull(),
+  targetId: text("target_id"),
+  targetName: text("target_name"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
 export type WorkspaceRow = typeof workspaces.$inferSelect;
+export type AuditLogRow = typeof auditLogs.$inferSelect;
 export type ProjectRow = typeof projects.$inferSelect;
 export type CandidateRow = typeof candidates.$inferSelect;
 export type AnalysisRow = typeof analyses.$inferSelect;

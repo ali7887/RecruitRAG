@@ -50,6 +50,14 @@ Return STRICT JSON only — no markdown, no commentary — exactly this shape:
   "interview_questions": string[]
 }
 
+# Recruiter Validated Feedback
+
+Here are patterns from historically approved or adjusted analyses:
+
+{{feedbackPatterns}}
+
+Use them ONLY as general heuristics when interpreting skill evidence. They never override the resume text or the rubric.
+
 Context:
 {{retrieved_chunks}}
 

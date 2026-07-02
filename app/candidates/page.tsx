@@ -5,9 +5,18 @@ import { getWorkspaceContext } from "@/lib/workspace";
 
 export const dynamic = "force-dynamic";
 
-export default async function CandidatesPage() {
-  const { workspaceId } = await getWorkspaceContext();
-  const candidates = await listCandidates(workspaceId);
+export default async function CandidatesPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ assigned?: string }>;
+}) {
+  const { workspaceId, role } = await getWorkspaceContext();
+  const { assigned } = await searchParams;
+  const assignedToMe = assigned === "me";
+  const all = await listCandidates(workspaceId);
+  const candidates = assignedToMe
+    ? all.filter((candidate) => candidate.assignedReviewerId === role)
+    : all;
 
   return (
     <main className="mx-auto w-full max-w-4xl px-6 py-10">
@@ -21,8 +30,33 @@ export default async function CandidatesPage() {
 
         <SearchBar />
 
+        <div className="flex items-center gap-1.5">
+          <Link
+            href="/candidates"
+            className={`rounded-full border px-2.5 py-0.5 text-xs transition-colors ${
+              assignedToMe
+                ? "border-zinc-800 text-zinc-500 hover:text-zinc-300"
+                : "border-cyan-500/40 bg-cyan-500/10 text-cyan-300"
+            }`}
+          >
+            All
+          </Link>
+          <Link
+            href="/candidates?assigned=me"
+            className={`rounded-full border px-2.5 py-0.5 text-xs transition-colors ${
+              assignedToMe
+                ? "border-cyan-500/40 bg-cyan-500/10 text-cyan-300"
+                : "border-zinc-800 text-zinc-500 hover:text-zinc-300"
+            }`}
+          >
+            Assigned to me ({role})
+          </Link>
+        </div>
+
         {candidates.length === 0 ? (
-          <p className="text-sm text-zinc-600">No candidates yet.</p>
+          <p className="text-sm text-zinc-600">
+            {assignedToMe ? "No candidates assigned to you." : "No candidates yet."}
+          </p>
         ) : (
           <ul className="flex flex-col gap-2">
             {candidates.map((candidate) => (

@@ -13,9 +13,11 @@ export const SEMANTIC_MIN_SIMILARITY = 0.4;
 export const MAX_CONTEXT_CHUNKS = 6;
 
 // Candidate pipeline (Phase 8). Order reflects funnel progression.
+// "shortlisted" added in Phase 20 for automated shortlisting.
 export const CANDIDATE_STATUSES = [
   "sourced",
   "screening",
+  "shortlisted",
   "interviewing",
   "offer",
   "rejected",
@@ -24,6 +26,11 @@ export const CANDIDATE_STATUSES = [
 export type CandidateStatus = (typeof CANDIDATE_STATUSES)[number];
 
 export const DEFAULT_CANDIDATE_STATUS: CandidateStatus = "screening";
+
+// Human-in-the-loop review states for an analysis (Phase 18).
+export const REVIEW_STATUSES = ["pending", "approved", "adjusted", "rejected"] as const;
+
+export type ReviewStatus = (typeof REVIEW_STATUSES)[number];
 
 // Embedding reliability
 export const EMBEDDING_BATCH_SIZE = 5;

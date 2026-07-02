@@ -51,6 +51,8 @@ export function statusColorClass(status: string): string {
       return "text-zinc-300 border-zinc-600";
     case "screening":
       return "text-cyan-300 border-cyan-500/40";
+    case "shortlisted":
+      return "text-sky-300 border-sky-500/40";
     case "interviewing":
       return "text-teal-300 border-teal-500/40";
     case "offer":
@@ -60,6 +62,32 @@ export function statusColorClass(status: string): string {
     default:
       return "text-zinc-300 border-zinc-600";
   }
+}
+
+// Review status (Phase 18) → text + border classes for review chips.
+export function reviewColorClass(reviewStatus: string): string {
+  switch (reviewStatus) {
+    case "approved":
+      return "text-emerald-300 border-emerald-500/40";
+    case "adjusted":
+      return "text-amber-300 border-amber-500/40";
+    case "rejected":
+      return "text-rose-300 border-rose-500/40";
+    default:
+      return "text-zinc-400 border-zinc-700";
+  }
+}
+
+// The score shown in the UI (Phase 18): an adjusted review score overrides the
+// AI final score; otherwise the AI score stands.
+export function effectiveScore(
+  finalScore: number,
+  reviewStatus: string,
+  adjustedFinalScore: number | null,
+): number {
+  return reviewStatus === "adjusted" && adjustedFinalScore != null
+    ? adjustedFinalScore
+    : finalScore;
 }
 
 // Analyze one candidate against one role. Deterministic demo output is used

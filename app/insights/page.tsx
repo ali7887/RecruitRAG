@@ -1,25 +1,45 @@
 import Link from "next/link";
 import {
+  getAutomationSummary,
   getPortfolioStats,
   getProjectDifficultyRanking,
   getReusableCandidates,
+  getScoreVariance,
   getSkillTrends,
   getTopCandidates,
 } from "@/lib/portfolio-analytics";
+import { listAuditLogs } from "@/lib/db/repository";
 import { matchQualityLabel, scoreColorClass } from "@/lib/multi";
 import { getWorkspaceContext } from "@/lib/workspace";
 
 export const dynamic = "force-dynamic";
 
+// Audit action → readable verb phrase for the activity feed.
+const AUDIT_PHRASES: Record<string, string> = {
+  PROJECT_CREATE: "created project",
+  ANALYSIS_RUN: "analyzed candidate",
+  CANDIDATE_DELETE: "deleted candidate",
+  STATUS_CHANGE: "updated status for",
+  NOTE_UPDATE: "updated notes for",
+};
+
+function auditPhrase(action: string): string {
+  return AUDIT_PHRASES[action] ?? action.toLowerCase().replace(/_/g, " ");
+}
+
 export default async function InsightsPage() {
   const { workspaceId } = await getWorkspaceContext();
-  const [stats, topCandidates, difficulty, skillTrends, reusable] = await Promise.all([
-    getPortfolioStats(workspaceId),
-    getTopCandidates(workspaceId, 10),
-    getProjectDifficultyRanking(workspaceId),
-    getSkillTrends(workspaceId),
-    getReusableCandidates(workspaceId),
-  ]);
+  const [stats, topCandidates, difficulty, skillTrends, reusable, variance, automation, auditLogs] =
+    await Promise.all([
+      getPortfolioStats(workspaceId),
+      getTopCandidates(workspaceId, 10),
+      getProjectDifficultyRanking(workspaceId),
+      getSkillTrends(workspaceId),
+      getReusableCandidates(workspaceId),
+      getScoreVariance(workspaceId),
+      getAutomationSummary(workspaceId),
+      listAuditLogs(workspaceId, 15),
+    ]);
 
   return (
     <main className="mx-auto w-full max-w-4xl px-6 py-10">
@@ -161,6 +181,115 @@ export default async function InsightsPage() {
                       </span>
                     ))}
                   </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
+
+        {/* AI vs Human Score Variance (Phase 18) */}
+        <Card title="AI vs Human Score Variance">
+          <p className="text-xs text-zinc-500">
+            <span className="text-cyan-300">{variance.approvedPct}%</span> of{" "}
+            {variance.reviewedCount} reviewed analyses approved without adjustment.
+          </p>
+          {variance.items.length === 0 ? (
+            <Empty>No adjusted scores yet.</Empty>
+          ) : (
+            <ul className="flex flex-col divide-y divide-zinc-800/70">
+              {variance.items.map((item, index) => (
+                <li
+                  key={`${item.name}-${index}`}
+                  className="flex items-center justify-between gap-3 py-2 text-sm first:pt-0 last:pb-0"
+                >
+                  <span className="min-w-0 flex-1 truncate text-zinc-300">{item.name}</span>
+                  <span className="shrink-0 text-xs text-zinc-500 tabular-nums">
+                    AI {item.aiScore} → {item.humanScore}
+                  </span>
+                  <span
+                    className={`w-10 shrink-0 text-right text-sm font-semibold tabular-nums ${item.diff > 0 ? "text-emerald-400" : "text-rose-400"}`}
+                  >
+                    {item.diff > 0 ? `+${item.diff}` : item.diff}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
+
+        {/* Automation Recommendations (Phase 20) */}
+        <Card title="Automation Recommendations">
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-2">
+              <p className="text-[11px] uppercase tracking-wider text-zinc-600">
+                Shortlist recommendations
+              </p>
+              {automation.shortlisted.length === 0 ? (
+                <Empty>No shortlisted candidates.</Empty>
+              ) : (
+                <ul className="flex flex-col gap-1.5">
+                  {automation.shortlisted.map((item, index) => (
+                    <li
+                      key={`sl-${item.name}-${index}`}
+                      className="flex items-center justify-between gap-3 text-sm"
+                    >
+                      <span className="min-w-0 flex-1 truncate text-zinc-300">
+                        {item.name}
+                        <span className="ml-2 text-xs text-zinc-600">{item.projectTitle}</span>
+                      </span>
+                      <span className="shrink-0 text-sm font-semibold tabular-nums text-sky-300">
+                        {item.score}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+            <div className="flex flex-col gap-2">
+              <p className="text-[11px] uppercase tracking-wider text-zinc-600">Flagged candidates</p>
+              {automation.flagged.length === 0 ? (
+                <Empty>No flagged candidates.</Empty>
+              ) : (
+                <ul className="flex flex-col gap-1.5">
+                  {automation.flagged.map((item, index) => (
+                    <li
+                      key={`fl-${item.name}-${index}`}
+                      className="flex items-center justify-between gap-3 text-sm"
+                    >
+                      <span className="min-w-0 flex-1 truncate text-zinc-300">
+                        {item.name}
+                        <span className="ml-2 text-xs text-zinc-600">{item.projectTitle}</span>
+                      </span>
+                      <span className="shrink-0 rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[11px] text-amber-300">
+                        {item.decision}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        </Card>
+
+        {/* Recent Workspace Activity — immutable, read-only audit feed */}
+        <Card title="Recent Workspace Activity">
+          {auditLogs.length === 0 ? (
+            <Empty>No recorded activity yet.</Empty>
+          ) : (
+            <ul className="flex flex-col divide-y divide-zinc-800/70">
+              {auditLogs.map((log) => (
+                <li
+                  key={log.id}
+                  className="flex items-center justify-between gap-3 py-2 text-sm first:pt-0 last:pb-0"
+                >
+                  <span className="min-w-0 flex-1 truncate text-zinc-300">
+                    <span className="text-cyan-400/80">[{log.actorRole}]</span>{" "}
+                    {auditPhrase(log.action)}{" "}
+                    <span className="text-zinc-100">{log.targetName ?? "—"}</span>
+                  </span>
+                  <span className="shrink-0 text-xs text-zinc-600 tabular-nums">
+                    {log.createdAt.toISOString().slice(0, 10)}
+                  </span>
                 </li>
               ))}
             </ul>

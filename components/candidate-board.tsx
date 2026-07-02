@@ -5,7 +5,7 @@ import { useState, useTransition } from "react";
 import { CANDIDATE_STATUSES, type CandidateStatus } from "@/lib/constants";
 import { updateAnalysisNotesAction, updateAnalysisStatusAction } from "@/lib/actions";
 import type { ProjectAnalysis } from "@/lib/db/repository";
-import { scoreColorClass, statusColorClass } from "@/lib/multi";
+import { effectiveScore, scoreColorClass, statusColorClass } from "@/lib/multi";
 
 type Filter = CandidateStatus | "all";
 
@@ -128,11 +128,17 @@ function BoardRow({ analysis, canWrite }: { analysis: ProjectAnalysis; canWrite:
           ))}
         </select>
         <span
-          className={`shrink-0 text-sm font-semibold tabular-nums ${scoreColorClass(analysis.finalScore)}`}
+          className={`shrink-0 text-sm font-semibold tabular-nums ${scoreColorClass(effectiveScore(analysis.finalScore, analysis.reviewStatus, analysis.adjustedFinalScore))}`}
         >
-          {analysis.finalScore}
+          {effectiveScore(analysis.finalScore, analysis.reviewStatus, analysis.adjustedFinalScore)}
         </span>
       </div>
+
+      {analysis.automationDecision && (
+        <span className="self-start rounded-full border border-sky-500/30 bg-sky-500/10 px-2 py-0.5 text-[10px] font-medium text-sky-300">
+          {analysis.automationDecision}
+        </span>
+      )}
 
       {editing ? (
         <div className="flex flex-col gap-1.5">

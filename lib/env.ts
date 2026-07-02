@@ -1,11 +1,11 @@
-const REQUIRED_ENV = ["OPENAI_API_KEY", "ANTHROPIC_API_KEY"] as const;
-
-type EnvKey = (typeof REQUIRED_ENV)[number];
+type EnvKey = "OPENAI_API_KEY" | "ANTHROPIC_API_KEY";
 
 function readEnv(key: EnvKey): string {
   const value = process.env[key];
   if (!value) {
-    throw new Error(`Missing required environment variable: ${key}`);
+    throw new Error(
+      `Missing required environment variable: ${key}. Set it, or set USE_DEMO_MODE=true to run without external providers.`,
+    );
   }
   return value;
 }
@@ -25,3 +25,22 @@ export const env = {
     return process.env.USE_DEMO_MODE === "true";
   },
 };
+
+// Explicit boot/runtime validation (Phase 17). Fails fast with a descriptive
+// message instead of a cryptic provider error deep in a request. In demo/mock
+// mode nothing external is required; without DATABASE_URL the app runs against
+// the in-memory store, so DATABASE_URL is only validated when it is set.
+export function validateEnv(): void {
+  if (env.useDemoMode) return;
+
+  const missing: string[] = [];
+  if (!process.env.OPENAI_API_KEY) missing.push("OPENAI_API_KEY (resume embeddings)");
+  if (!process.env.ANTHROPIC_API_KEY) missing.push("ANTHROPIC_API_KEY (analysis + briefings)");
+
+  if (missing.length > 0) {
+    throw new Error(
+      `RecruitRAG is not in demo mode but required provider keys are missing: ${missing.join(", ")}. ` +
+        "Set the keys, or set USE_DEMO_MODE=true to run without external providers.",
+    );
+  }
+}

@@ -54,9 +54,7 @@ function isQuotaError(error: unknown): boolean {
 
 // Embed one batch of strings with timeout + exponential-backoff retry.
 // Returns embeddings in the same order as the input.
-async function embedBatch(input: string[], batchIndex: number): Promise<number[][]> {
-  console.log("Embedding batch", { batchSize: input.length, batchIndex });
-
+async function embedBatch(input: string[]): Promise<number[][]> {
   for (let attempt = 1; attempt <= EMBEDDING_MAX_RETRIES; attempt++) {
     try {
       const response = await getClient().embeddings.create({
@@ -71,7 +69,6 @@ async function embedBatch(input: string[], batchIndex: number): Promise<number[]
       if (!isRetryable(error) || attempt === EMBEDDING_MAX_RETRIES) {
         throw error;
       }
-      console.warn("Embedding retry", { attempt, batchIndex });
       // attempt 1 failure → wait 500ms, attempt 2 failure → wait 1000ms, …
       await delay(EMBEDDING_RETRY_BASE_DELAY_MS * attempt);
     }
@@ -83,14 +80,14 @@ async function embedBatch(input: string[], batchIndex: number): Promise<number[]
 
 // Embed a single string (used for the job description query vector).
 export async function embedText(text: string): Promise<number[]> {
-  const [embedding] = await embedBatch([text], 0);
+  const [embedding] = await embedBatch([text]);
   return embedding;
 }
 
-// Simple process-lifetime cache for single-text embeddings (Phase 13). Repeated
-// queries / job descriptions within a session skip the API call. Bounded so it
-// cannot grow without limit.
-const EMBEDDING_CACHE_MAX = 500;
+// Process-lifetime cache for single-text embeddings (Phase 13). Repeated queries
+// / job descriptions within a session skip the API call. Bounded with FIFO
+// eviction (Phase 17) so it cannot leak memory during long-running executions.
+const EMBEDDING_CACHE_MAX = 1000;
 const embeddingCache = new Map<string, number[]>();
 
 export async function embedTextCached(text: string): Promise<number[]> {
@@ -99,7 +96,11 @@ export async function embedTextCached(text: string): Promise<number[]> {
   if (cached) return cached;
 
   const embedding = await embedText(key);
-  if (embeddingCache.size >= EMBEDDING_CACHE_MAX) embeddingCache.clear();
+  // Evict the oldest entry (Map preserves insertion order) once at capacity.
+  if (embeddingCache.size >= EMBEDDING_CACHE_MAX) {
+    const oldest = embeddingCache.keys().next().value;
+    if (oldest !== undefined) embeddingCache.delete(oldest);
+  }
   embeddingCache.set(key, embedding);
   return embedding;
 }
@@ -115,11 +116,7 @@ export async function embedChunks(chunks: Chunk[]): Promise<EmbeddedChunk[]> {
 
   for (let start = 0; start < chunks.length; start += EMBEDDING_BATCH_SIZE) {
     const batch = chunks.slice(start, start + EMBEDDING_BATCH_SIZE);
-    const batchIndex = start / EMBEDDING_BATCH_SIZE;
-    const vectors = await embedBatch(
-      batch.map((chunk) => chunk.text),
-      batchIndex,
-    );
+    const vectors = await embedBatch(batch.map((chunk) => chunk.text));
 
     batch.forEach((chunk, index) => {
       embedded.push({ ...chunk, embedding: vectors[index] });

@@ -4,16 +4,22 @@ import { getDb } from "@/lib/db/client";
 import { getMemoryStore } from "@/lib/db/memory";
 import {
   analyses,
+  auditLogs,
   candidates,
   projects,
   workspaces,
   type AnalysisRow,
+  type AuditLogRow,
   type CandidateRow,
   type ProjectRow,
   type WorkspaceRow,
 } from "@/lib/db/schema";
 import type { Briefing } from "@/lib/briefing";
-import { DEFAULT_CANDIDATE_STATUS, type CandidateStatus } from "@/lib/constants";
+import {
+  DEFAULT_CANDIDATE_STATUS,
+  type CandidateStatus,
+  type ReviewStatus,
+} from "@/lib/constants";
 import type { Evidence, RubricScores } from "@/lib/evaluation-rubric";
 import type { ParsedResume } from "@/lib/resume-parser";
 
@@ -38,6 +44,9 @@ export interface ProjectAnalysis {
   strengths: string[];
   gaps: string[];
   interviewQuestions: string[];
+  reviewStatus: ReviewStatus;
+  adjustedFinalScore: number | null;
+  automationDecision: string | null;
 }
 
 // A project plus its scored candidates (sorted by match) and headline metrics.
@@ -62,6 +71,8 @@ export interface UpsertCandidateInput {
   resumeEmbedding?: number[] | null;
   // Lightweight structured profile from the parser (Phase 12).
   parsed?: ParsedResume | null;
+  // True when the profile came from the heuristic fallback (Phase 15).
+  parsedViaFallback?: boolean;
 }
 
 export interface NewAnalysisInput {
@@ -76,6 +87,9 @@ export interface NewAnalysisInput {
   strengths: string[];
   gaps: string[];
   interviewQuestions: string[];
+  // Optional pipeline stage + automated decision applied at creation (Phase 20).
+  status?: CandidateStatus;
+  automationDecision?: string | null;
 }
 
 // True when analyses should persist to Postgres; false when using the
@@ -200,6 +214,9 @@ export async function getProjectDetails(
       strengths: row.strengths,
       gaps: row.gaps,
       interviewQuestions: row.interviewQuestions,
+      reviewStatus: row.reviewStatus as ReviewStatus,
+      adjustedFinalScore: row.adjustedFinalScore,
+      automationDecision: row.automationDecision,
     }))
     .sort((a, b) => b.finalScore - a.finalScore);
 
@@ -284,6 +301,7 @@ export async function upsertCandidate(input: UpsertCandidateInput): Promise<Cand
     parsedSkills: input.parsed?.skills ?? null,
     parsedExperienceYears: input.parsed?.experienceYears ?? null,
     parsedWorkSummary: input.parsed?.workSummary ?? null,
+    parsedViaFallback: input.parsedViaFallback ?? null,
   };
 
   const db = getDb();
@@ -307,6 +325,8 @@ export async function upsertCandidate(input: UpsertCandidateInput): Promise<Cand
       resumeText: input.resumeText,
       resumeEmbedding: input.resumeEmbedding ?? null,
       ...parsedFields,
+      assignedReviewerId: null,
+      assignedAt: null,
       createdAt: new Date(),
     };
     memory.candidates.unshift(candidate);
@@ -411,7 +431,7 @@ export async function createAnalysis(input: NewAnalysisInput): Promise<AnalysisR
       projectId: input.projectId,
       candidateId: input.candidateId,
       role: input.role,
-      status: DEFAULT_CANDIDATE_STATUS,
+      status: input.status ?? DEFAULT_CANDIDATE_STATUS,
       notes: "",
       similarityScore: input.similarityScore,
       llmScore: input.llmScore,
@@ -425,6 +445,10 @@ export async function createAnalysis(input: NewAnalysisInput): Promise<AnalysisR
       technicalSummary: null,
       hiringRecommendation: null,
       interviewFocus: null,
+      reviewStatus: "pending",
+      reviewerNotes: null,
+      adjustedFinalScore: null,
+      automationDecision: input.automationDecision ?? null,
       createdAt: new Date(),
     };
     getMemoryStore().analyses.unshift(analysis);
@@ -444,6 +468,8 @@ export async function createAnalysis(input: NewAnalysisInput): Promise<AnalysisR
       strengths: input.strengths,
       gaps: input.gaps,
       interviewQuestions: input.interviewQuestions,
+      ...(input.status ? { status: input.status } : {}),
+      automationDecision: input.automationDecision ?? null,
     })
     .returning();
   return rows[0];
@@ -509,6 +535,151 @@ export async function updateAnalysisBriefing(
   }
   const rows = await db.update(analyses).set(fields).where(eq(analyses.id, id)).returning();
   return rows[0] ?? null;
+}
+
+// Human-in-the-loop review update (Phase 18).
+export interface AnalysisReviewInput {
+  reviewStatus: ReviewStatus;
+  adjustedFinalScore?: number | null;
+  reviewerNotes?: string | null;
+}
+
+export async function updateAnalysisReview(
+  id: string,
+  input: AnalysisReviewInput,
+): Promise<AnalysisRow | null> {
+  const fields = {
+    reviewStatus: input.reviewStatus,
+    adjustedFinalScore: input.adjustedFinalScore ?? null,
+    reviewerNotes: input.reviewerNotes ?? null,
+  };
+  const db = getDb();
+  if (!db) {
+    const analysis = getMemoryStore().analyses.find((row) => row.id === id);
+    if (!analysis) return null;
+    Object.assign(analysis, fields);
+    return analysis;
+  }
+  const rows = await db.update(analyses).set(fields).where(eq(analyses.id, id)).returning();
+  return rows[0] ?? null;
+}
+
+// Clear an automated decision so a recruiter override wins (Phase 20).
+export async function clearAnalysisAutomation(id: string): Promise<AnalysisRow | null> {
+  const db = getDb();
+  if (!db) {
+    const analysis = getMemoryStore().analyses.find((row) => row.id === id);
+    if (!analysis) return null;
+    analysis.automationDecision = null;
+    return analysis;
+  }
+  const rows = await db
+    .update(analyses)
+    .set({ automationDecision: null })
+    .where(eq(analyses.id, id))
+    .returning();
+  return rows[0] ?? null;
+}
+
+// Assign a reviewer (role) to a candidate within a workspace (Phase 19).
+export async function assignReviewer(
+  candidateId: string,
+  workspaceId: string,
+  reviewerId: string | null,
+): Promise<CandidateRow | null> {
+  const assignedAt = reviewerId ? new Date() : null;
+  const db = getDb();
+  if (!db) {
+    const candidate = getMemoryStore().candidates.find(
+      (row) => row.id === candidateId && row.workspaceId === workspaceId,
+    );
+    if (!candidate) return null;
+    candidate.assignedReviewerId = reviewerId;
+    candidate.assignedAt = assignedAt;
+    return candidate;
+  }
+  const rows = await db
+    .update(candidates)
+    .set({ assignedReviewerId: reviewerId, assignedAt })
+    .where(and(eq(candidates.id, candidateId), eq(candidates.workspaceId, workspaceId)))
+    .returning();
+  return rows[0] ?? null;
+}
+
+// Count candidates assigned to a given reviewer within a workspace (Phase 19).
+export async function countAssignedCandidates(
+  workspaceId: string,
+  reviewerId: string,
+): Promise<number> {
+  const db = getDb();
+  if (!db) {
+    return getMemoryStore().candidates.filter(
+      (row) => row.workspaceId === workspaceId && row.assignedReviewerId === reviewerId,
+    ).length;
+  }
+  const rows = await db
+    .select({ id: candidates.id })
+    .from(candidates)
+    .where(
+      and(eq(candidates.workspaceId, workspaceId), eq(candidates.assignedReviewerId, reviewerId)),
+    );
+  return rows.length;
+}
+
+export interface NewAuditLogInput {
+  workspaceId: string;
+  actorRole: string;
+  action: string;
+  targetId?: string | null;
+  targetName?: string | null;
+}
+
+// Append an immutable audit record (Phase 16). Never throws into the caller —
+// audit failures must not break the underlying action.
+export async function appendAuditLog(input: NewAuditLogInput): Promise<void> {
+  const row: AuditLogRow = {
+    id: randomUUID(),
+    workspaceId: input.workspaceId,
+    actorRole: input.actorRole,
+    action: input.action,
+    targetId: input.targetId ?? null,
+    targetName: input.targetName ?? null,
+    createdAt: new Date(),
+  };
+  const db = getDb();
+  try {
+    if (!db) {
+      getMemoryStore().auditLogs.push(row);
+      return;
+    }
+    await db.insert(auditLogs).values({
+      id: row.id,
+      workspaceId: row.workspaceId,
+      actorRole: row.actorRole,
+      action: row.action,
+      targetId: row.targetId,
+      targetName: row.targetName,
+    });
+  } catch (error) {
+    console.error("Failed to write audit log", error);
+  }
+}
+
+// The workspace's most recent audit records, newest first.
+export async function listAuditLogs(workspaceId: string, limit = 15): Promise<AuditLogRow[]> {
+  const db = getDb();
+  if (!db) {
+    return getMemoryStore()
+      .auditLogs.filter((log) => log.workspaceId === workspaceId)
+      .sort(byNewest)
+      .slice(0, limit);
+  }
+  return db
+    .select()
+    .from(auditLogs)
+    .where(eq(auditLogs.workspaceId, workspaceId))
+    .orderBy(desc(auditLogs.createdAt))
+    .limit(limit);
 }
 
 function byNewest(a: { createdAt: Date }, b: { createdAt: Date }): number {

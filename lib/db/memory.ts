@@ -1,7 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { getDemoBriefing } from "@/lib/briefing";
 import { CANDIDATE_STATUSES } from "@/lib/constants";
-import type { AnalysisRow, CandidateRow, ProjectRow, WorkspaceRow } from "@/lib/db/schema";
+import type {
+  AnalysisRow,
+  AuditLogRow,
+  CandidateRow,
+  ProjectRow,
+  WorkspaceRow,
+} from "@/lib/db/schema";
 import { getDemoAnalysisFor } from "@/lib/demo-analysis";
 import { SAMPLE_JOB_DESCRIPTIONS, SAMPLE_RESUMES } from "@/lib/demo-content";
 import { getDemoParsedResume } from "@/lib/resume-parser";
@@ -29,6 +35,7 @@ export interface MemoryStore {
   projects: ProjectRow[];
   candidates: CandidateRow[];
   analyses: AnalysisRow[];
+  auditLogs: AuditLogRow[];
 }
 
 let store: MemoryStore | null = null;
@@ -37,7 +44,7 @@ let store: MemoryStore | null = null;
 // running server. Resets on cold start — acceptable for the demo fallback.
 export function getMemoryStore(): MemoryStore {
   if (!store) {
-    store = { workspaces: [], projects: [], candidates: [], analyses: [] };
+    store = { workspaces: [], projects: [], candidates: [], analyses: [], auditLogs: [] };
     seed(store);
   }
   return store;
@@ -104,6 +111,9 @@ function seed(target: MemoryStore) {
       parsedSkills: parsed.skills,
       parsedExperienceYears: parsed.experienceYears,
       parsedWorkSummary: parsed.workSummary,
+      parsedViaFallback: null,
+      assignedReviewerId: null,
+      assignedAt: null,
       createdAt: new Date(now - index * 1000),
     });
   });
@@ -158,8 +168,38 @@ function seed(target: MemoryStore) {
         technicalSummary: briefing.technicalSummary,
         hiringRecommendation: briefing.hiringRecommendation,
         interviewFocus: briefing.interviewFocus,
+        reviewStatus: "pending",
+        reviewerNotes: null,
+        adjustedFinalScore: null,
+        automationDecision: null,
         createdAt: new Date(now - index * 1000),
       });
+    });
+  });
+
+  // Seed a plausible, immutable activity feed so the audit view is not empty.
+  const nameById = new Map(target.candidates.map((candidate) => [candidate.id, candidate.name]));
+  target.projects.forEach((project, i) => {
+    target.auditLogs.push({
+      id: randomUUID(),
+      workspaceId: project.workspaceId,
+      actorRole: "Owner",
+      action: "PROJECT_CREATE",
+      targetId: project.id,
+      targetName: project.title,
+      createdAt: new Date(now - 10_000 + i * 100),
+    });
+  });
+  target.analyses.forEach((analysis, i) => {
+    const project = target.projects.find((p) => p.id === analysis.projectId);
+    target.auditLogs.push({
+      id: randomUUID(),
+      workspaceId: project?.workspaceId ?? WS_STARTUP,
+      actorRole: "Recruiter",
+      action: "ANALYSIS_RUN",
+      targetId: analysis.candidateId,
+      targetName: nameById.get(analysis.candidateId) ?? "Candidate",
+      createdAt: new Date(now - 5_000 + i * 100),
     });
   });
 }

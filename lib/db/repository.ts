@@ -10,6 +10,7 @@ import {
   type CandidateRow,
   type ProjectRow,
 } from "@/lib/db/schema";
+import { DEFAULT_CANDIDATE_STATUS, type CandidateStatus } from "@/lib/constants";
 import type { Evidence, RubricScores } from "@/lib/evaluation-rubric";
 
 export interface NewProjectInput {
@@ -24,6 +25,8 @@ export interface ProjectAnalysis {
   candidateId: string;
   name: string;
   role: string;
+  status: CandidateStatus;
+  notes: string;
   finalScore: number;
   similarityScore: number;
   llmScore: number;
@@ -148,6 +151,8 @@ export async function getProjectDetails(id: string): Promise<ProjectDetails | nu
       candidateId: row.candidateId,
       name: nameById.get(row.candidateId) ?? "Unknown",
       role: row.role,
+      status: row.status as CandidateStatus,
+      notes: row.notes,
       finalScore: row.finalScore,
       similarityScore: row.similarityScore,
       llmScore: row.llmScore,
@@ -278,6 +283,8 @@ export async function createAnalysis(input: NewAnalysisInput): Promise<AnalysisR
       projectId: input.projectId,
       candidateId: input.candidateId,
       role: input.role,
+      status: DEFAULT_CANDIDATE_STATUS,
+      notes: "",
       similarityScore: input.similarityScore,
       llmScore: input.llmScore,
       finalScore: input.finalScore,
@@ -308,6 +315,46 @@ export async function createAnalysis(input: NewAnalysisInput): Promise<AnalysisR
     })
     .returning();
   return rows[0];
+}
+
+// Move a candidate to a new pipeline stage within its project.
+export async function updateAnalysisStatus(
+  id: string,
+  status: CandidateStatus,
+): Promise<AnalysisRow | null> {
+  const db = getDb();
+  if (!db) {
+    const analysis = getMemoryStore().analyses.find((row) => row.id === id);
+    if (!analysis) return null;
+    analysis.status = status;
+    return analysis;
+  }
+  const rows = await db
+    .update(analyses)
+    .set({ status })
+    .where(eq(analyses.id, id))
+    .returning();
+  return rows[0] ?? null;
+}
+
+// Replace the recruiter notes for a candidate within its project.
+export async function updateAnalysisNotes(
+  id: string,
+  notes: string,
+): Promise<AnalysisRow | null> {
+  const db = getDb();
+  if (!db) {
+    const analysis = getMemoryStore().analyses.find((row) => row.id === id);
+    if (!analysis) return null;
+    analysis.notes = notes;
+    return analysis;
+  }
+  const rows = await db
+    .update(analyses)
+    .set({ notes })
+    .where(eq(analyses.id, id))
+    .returning();
+  return rows[0] ?? null;
 }
 
 function byNewest(a: { createdAt: Date }, b: { createdAt: Date }): number {

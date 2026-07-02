@@ -9,7 +9,15 @@ import { env } from "@/lib/env";
 import type { EvaluatedAnalysis } from "@/lib/evaluation-rubric";
 import { extractTextFromPdf } from "@/lib/parser";
 import { searchCandidates, type CandidateMatch } from "@/lib/search";
-import { createAnalysis, createProject, upsertCandidate } from "@/lib/db/repository";
+import type { CandidateStatus } from "@/lib/constants";
+import type { AnalysisRow } from "@/lib/db/schema";
+import {
+  createAnalysis,
+  createProject,
+  updateAnalysisNotes,
+  updateAnalysisStatus,
+  upsertCandidate,
+} from "@/lib/db/repository";
 
 const MIN_JD_LENGTH = 30;
 
@@ -82,6 +90,32 @@ export async function analyzeCandidateAction(formData: FormData): Promise<void> 
 
   revalidatePath(`/projects/${projectId}`);
   revalidatePath("/candidates");
+}
+
+// Move a candidate to a new pipeline stage, then refresh the affected views.
+export async function updateAnalysisStatusAction(
+  analysisId: string,
+  status: CandidateStatus,
+): Promise<AnalysisRow | null> {
+  const analysis = await updateAnalysisStatus(analysisId, status);
+  if (analysis) {
+    revalidatePath(`/projects/${analysis.projectId}`);
+    revalidatePath(`/candidates/${analysis.candidateId}`);
+  }
+  return analysis;
+}
+
+// Save recruiter notes for a candidate within its project.
+export async function updateAnalysisNotesAction(
+  analysisId: string,
+  notes: string,
+): Promise<AnalysisRow | null> {
+  const analysis = await updateAnalysisNotes(analysisId, notes);
+  if (analysis) {
+    revalidatePath(`/projects/${analysis.projectId}`);
+    revalidatePath(`/candidates/${analysis.candidateId}`);
+  }
+  return analysis;
 }
 
 // Rank stored candidates against a free-text query for the candidates search

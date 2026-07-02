@@ -1,10 +1,10 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { CandidateBoard } from "@/components/candidate-board";
 import { ScoreRing } from "@/components/score-ring";
 import { SearchBar } from "@/components/search-bar";
 import { analyzeCandidateAction } from "@/lib/actions";
 import { getProjectDetails } from "@/lib/db/repository";
-import { scoreColorClass } from "@/lib/multi";
 
 export const dynamic = "force-dynamic";
 
@@ -106,31 +106,7 @@ export default async function ProjectPage({
               Candidates
             </h2>
             <SearchBar projectId={project.id} placeholder="Search candidates in this project…" />
-            {analyses.length === 0 ? (
-              <p className="text-sm text-zinc-600">No candidates yet.</p>
-            ) : (
-              <ul className="flex flex-col gap-1.5">
-                {analyses.map((analysis) => (
-                  <li
-                    key={analysis.analysisId}
-                    className="flex items-center justify-between rounded-lg border border-zinc-800 bg-zinc-950/40 px-3 py-2"
-                  >
-                    <Link
-                      href={`/candidates/${analysis.candidateId}`}
-                      className="min-w-0 flex-1 truncate text-sm text-zinc-300 hover:text-zinc-100"
-                    >
-                      {analysis.name}
-                      <span className="ml-2 text-xs text-zinc-600">{analysis.role}</span>
-                    </Link>
-                    <span
-                      className={`shrink-0 text-sm font-semibold tabular-nums ${scoreColorClass(analysis.finalScore)}`}
-                    >
-                      {analysis.finalScore}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            )}
+            <CandidateBoard analyses={analyses} />
           </section>
         </div>
       </div>

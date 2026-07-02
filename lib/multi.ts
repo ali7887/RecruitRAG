@@ -35,6 +35,25 @@ export function scoreColorClass(score: number): string {
   return "text-red-400";
 }
 
+// Pipeline status → text + border classes for status chips/selects (Phase 8),
+// consistent with the cyan/teal palette.
+export function statusColorClass(status: string): string {
+  switch (status) {
+    case "sourced":
+      return "text-zinc-300 border-zinc-600";
+    case "screening":
+      return "text-cyan-300 border-cyan-500/40";
+    case "interviewing":
+      return "text-teal-300 border-teal-500/40";
+    case "offer":
+      return "text-emerald-300 border-emerald-500/40";
+    case "rejected":
+      return "text-rose-300 border-rose-500/40";
+    default:
+      return "text-zinc-300 border-zinc-600";
+  }
+}
+
 // Analyze one candidate against one role. Deterministic demo output is used
 // when the candidate has no uploaded file or demo mode is on; otherwise the
 // existing /api/analyze endpoint is invoked (contract unchanged).

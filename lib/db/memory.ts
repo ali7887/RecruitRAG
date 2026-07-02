@@ -1,7 +1,15 @@
 import { randomUUID } from "node:crypto";
+import { CANDIDATE_STATUSES } from "@/lib/constants";
 import type { AnalysisRow, CandidateRow, ProjectRow } from "@/lib/db/schema";
 import { getDemoAnalysisFor } from "@/lib/demo-analysis";
 import { SAMPLE_JOB_DESCRIPTIONS, SAMPLE_RESUMES } from "@/lib/demo-content";
+
+// One sample recruiter note per seeded candidate, so the notes UI looks alive.
+const SEED_NOTES = [
+  "Strong React/Next.js background — fast-track to screen.",
+  "Solid full-stack; confirm infra and observability depth.",
+  "Great RAG experience; needs follow-up on team collaboration.",
+];
 
 export interface MemoryStore {
   projects: ProjectRow[];
@@ -83,15 +91,19 @@ function seed(target: MemoryStore) {
       createdAt: new Date(now - index * 1000),
     });
 
-    for (const resume of SAMPLE_RESUMES) {
+    SAMPLE_RESUMES.forEach((resume, candidateIndex) => {
       const candidateId = candidateIdBySample.get(resume.id);
-      if (!candidateId) continue;
+      if (!candidateId) return;
       const demo = getDemoAnalysisFor(resume.id, seed.roleId);
+      // Deterministic spread across pipeline stages so every status appears.
+      const status = CANDIDATE_STATUSES[(index * 3 + candidateIndex) % CANDIDATE_STATUSES.length];
       target.analyses.push({
         id: randomUUID(),
         projectId,
         candidateId,
         role: seed.role,
+        status,
+        notes: SEED_NOTES[candidateIndex] ?? "",
         similarityScore: demo.similarityScore,
         llmScore: demo.llmScore,
         finalScore: demo.finalScore,
@@ -102,6 +114,6 @@ function seed(target: MemoryStore) {
         interviewQuestions: demo.interviewQuestions,
         createdAt: new Date(now - index * 1000),
       });
-    }
+    });
   });
 }

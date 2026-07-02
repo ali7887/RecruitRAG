@@ -7,6 +7,19 @@ export const CHUNK_MIN_WORDS = 300;
 export const CHUNK_MAX_WORDS = 500;
 export const RETRIEVAL_TOP_K = 3;
 
+// Candidate pipeline (Phase 8). Order reflects funnel progression.
+export const CANDIDATE_STATUSES = [
+  "sourced",
+  "screening",
+  "interviewing",
+  "offer",
+  "rejected",
+] as const;
+
+export type CandidateStatus = (typeof CANDIDATE_STATUSES)[number];
+
+export const DEFAULT_CANDIDATE_STATUS: CandidateStatus = "screening";
+
 // Embedding reliability
 export const EMBEDDING_BATCH_SIZE = 5;
 export const EMBEDDING_MAX_CHUNKS = 30;

@@ -31,6 +31,10 @@ export const analyses = pgTable("analyses", {
     .notNull()
     .references(() => candidates.id, { onDelete: "cascade" }),
   role: text("role").notNull(),
+  // Pipeline stage for this candidate within the project (Phase 8).
+  status: text("status").notNull().default("screening"),
+  // Free-text recruiter notes for this candidate within the project.
+  notes: text("notes").notNull().default(""),
   similarityScore: integer("similarity_score").notNull(),
   llmScore: integer("llm_score").notNull(),
   finalScore: integer("final_score").notNull(),
